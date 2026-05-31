@@ -344,8 +344,13 @@ h1 {
 }
 
 .page-title.compact {
-  padding-top: 56px;
+  padding-top: 48px;
   padding-bottom: 18px;
+}
+
+.page-title.compact h1 {
+  max-width: 760px;
+  font-size: clamp(34px, 4.4vw, 54px);
 }
 
 .page-title h1 {
