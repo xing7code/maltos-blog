@@ -19,7 +19,7 @@
         </a>
         <div class="nav-links">
           <a href="../index.html">Articles</a>
-          <a href="https://github.com/xing7code/llm-train-systems">GitHub repo</a>
+          <a href="https://github.com/xing7code/maltos">GitHub repo</a>
         </div>
       </nav>
     </header>
@@ -39,7 +39,7 @@
         <article class="post-row">
           <div class="meta">Published</div>
           <div>
-            <h2><a href="a-small-but-realistic-runtime-for-llm-pretraining.html">A Small but Realistic Runtime for LLM Pretraining</a></h2>
+            <h2><a href="maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h2>
             <p>
               A full-system overview of RuntimeCore, plugin ordering, TP/SP, DDP,
               ZeRO stages, sharded checkpointing, data resume, metrics, and real
@@ -47,58 +47,6 @@
             </p>
           </div>
           <div class="status">System overview</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Next</div>
-          <div>
-            <h2>Distributed Checkpointing: Logical Tensors, Shards, and Resume Correctness</h2>
-            <p>
-              Why checkpointing defines the real training system boundary: model
-              shards, optimizer source ranks, trainer state, RNG, dataloader cursor,
-              atomic writes, retention, and artifact uploads.
-            </p>
-          </div>
-          <div class="status">Draft planned</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Planned</div>
-          <div>
-            <h2>ZeRO-3 from First Principles</h2>
-            <p>
-              Parameter materialization, reduce-scatter gradients, local optimizer
-              shards, prefetching, and why optimizer ownership belongs inside the
-              sharding plugin.
-            </p>
-          </div>
-          <div class="status">Deep dive</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Planned</div>
-          <div>
-            <h2>Tensor and Sequence Parallelism in a Readable Runtime</h2>
-            <p>
-              Column and row parallel linear layers, sequence activation sharding,
-              TP-aware token accounting, and why small models expose communication
-              overhead.
-            </p>
-          </div>
-          <div class="status">Deep dive</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Planned</div>
-          <div>
-            <h2>Profiling LLM Training with PyTorch Traces</h2>
-            <p>
-              Rank-local profiler artifacts, CUDA/NCCL/operator timelines,
-              launch gaps, communication overlap, and the discipline of separating
-              debug traces from steady-state metrics.
-            </p>
-          </div>
-          <div class="status">Trace analysis</div>
         </article>
       </section>
     </main>

@@ -1,7 +1,7 @@
 ---
 layout: post
-title: A Small but Realistic Runtime for LLM Pretraining
-description: Building a compact training runtime with process meshes, composable parallel plugins, sharded checkpoints, token-stream resume, and real 1/2/4 GPU experiments.
+title: MALTOS: A Modular Runtime for LLM Training
+description: Introducing MALTOS, a compact training runtime with process meshes, composable parallel plugins, sharded checkpoints, token-stream resume, and real 1/2/4 GPU experiments.
 category: Runtime overview
 date: 2026-05-26
 read_time: 18 min read
@@ -9,7 +9,7 @@ hero_image: /blog/assets/runtime-overview.svg
 hero_alt: Runtime overview diagram
 ---
 
-# A Small but Realistic Runtime for LLM Pretraining
+# MALTOS: A Modular Runtime for LLM Training
 
 Modern LLM pretraining systems are often described through their parallelism
 strategies: data parallelism, tensor parallelism, pipeline parallelism, ZeRO,
@@ -17,25 +17,30 @@ expert parallelism, context parallelism. But the deeper systems problem is not
 any single strategy. It is how these strategies compose inside one training
 runtime without turning the trainer into a pile of special cases.
 
-I built this project to study that problem from first principles. The goal was
+MALTOS is my attempt to study that problem from first principles. The goal is
 not to replace Megatron-LM, DeepSpeed, FSDP, or any production training stack.
-The goal was to build something small enough to understand end to end, but
+The goal is to build something small enough to understand end to end, but
 realistic enough to contain the same moving pieces that show up in large-scale
 pretraining: process groups, model transformations, mixed precision, sharded
 optimizer state, resumable data loading, distributed checkpoints, and runtime
 metrics.
 
-This post describes the design of that runtime and the first set of real
-training experiments. The experiments are intentionally small. They are meant
-to validate system behavior, not to train a useful language model.
+This is the opening post in a longer series on MALTOS. It sets the baseline:
+what the runtime is, why it is plugin-oriented, and what has already been
+validated on real GPUs. Later posts can go narrower: checkpoint format, TP/SP,
+DDP, ZeRO stages, profiler traces, and eventually the path from pretraining
+into SFT, preference training, and RL-oriented training services.
 
-repo: [xing7code/llm-train-systems](https://github.com/xing7code/llm-train-systems)
+The experiments here are intentionally small. They are meant to validate system
+behavior, not to train a useful language model.
+
+repo: [xing7code/maltos](https://github.com/xing7code/maltos)
 
 experiment tracking: [W&B report](https://api.wandb.ai/links/xing7-org/f2s88x30)
 
 ## Design Goals
 
-The project is organized around a few constraints that kept showing up during
+MALTOS is organized around a few constraints that kept showing up during
 implementation:
 
 - **Composable parallelism.** A training loop should not need a separate branch
@@ -59,7 +64,7 @@ implementation:
 
 ## System Overview
 
-The runtime is organized around a small number of components. The trainer drives
+MALTOS is organized around a small number of components. The trainer drives
 policy; the runtime drives execution; plugins own distributed behavior; the
 state manager owns checkpoint boundaries.
 
@@ -151,7 +156,7 @@ is at most one optimizer owner.
 
 ## Composable Parallelism
 
-The current runtime supports several parallelism plugins:
+The current MALTOS runtime supports several parallelism plugins:
 
 | Strategy | Implementation role |
 |---|---|
@@ -167,14 +172,10 @@ The important part is not that each plugin is production complete. The important
 part is that they compose through the same runtime interface. The same trainer
 can run single-GPU training, TP+SP, DDP, or DP+TP+SP+ZeRO3.
 
-Future plugins can follow the same pattern:
-
-- pipeline parallelism,
-- context parallelism,
-- expert parallelism,
-- activation checkpointing,
-- fused optimizer paths,
-- communication scheduling.
+The same pattern is also the natural extension point for pipeline parallelism,
+context parallelism, expert parallelism, fused optimizer paths, and more explicit
+communication scheduling. Those deserve separate deep dives; this post is only
+the system-level starting point.
 
 ## Distributed Checkpointing
 
@@ -194,7 +195,7 @@ slice of a global parameter. Optimizer state may be partitioned by data-parallel
 rank. Some plugins need to annotate checkpoint entries with extra metadata so a
 future restore can reconstruct the logical object.
 
-This runtime represents checkpointed tensors as entries with fixed fields and
+MALTOS represents checkpointed tensors as entries with fixed fields and
 plugin annotations:
 
 ```text
@@ -525,18 +526,13 @@ TFLOPS without indicating a broken runtime. The useful question is whether the
 metric moves in the expected direction as the workload becomes larger and more
 GPU-bound.
 
-## What Comes Next
+## Series Direction
 
-This post covered the system design and first training evidence. The next posts
-will go deeper into individual subsystems:
-
-1. Tensor and sequence parallelism: sharding linear layers and activations.
-2. Bucketed DDP: why gradient reduction order matters.
-3. ZeRO1, ZeRO2, and ZeRO3: what gets sharded at each stage.
-4. Distributed checkpointing: logical tensors, local shards, and resume.
-5. Performance work: FlashAttention, fused kernels, and profiling.
-6. A 4-GPU mini pretraining run: TP/SP/ZeRO3 with real data and W&B artifacts.
+This post is the foundation for the rest of the MALTOS series. The later pieces
+should go deeper rather than wider: one subsystem at a time, one parallel
+strategy at a time, and eventually the control-plane boundary needed to turn a
+trainer into a service for SFT, preference training, and RL.
 
 The long-term goal is not just to build another training script. It is to build
-a compact, inspectable runtime that makes modern pretraining infrastructure
-easier to reason about.
+a compact, inspectable runtime that makes modern training infrastructure easier
+to reason about and easier to extend for fast research.

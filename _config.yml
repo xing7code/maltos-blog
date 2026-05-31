@@ -1,7 +1,7 @@
 title: MALTOS
 description: Modular infrastructure notes for LLM pretraining and post-training systems.
 url: ""
-baseurl: "/alloy-blog"
+baseurl: "/maltos-blog"
 markdown: kramdown
 highlighter: rouge
 
