@@ -1,0 +1,29 @@
+---
+layout: default
+---
+
+<main>
+  <article class="post">
+    <header class="post-hero">
+      <p class="eyebrow">{{ page.category | default: "Technical note" }}</p>
+      <h1>{{ page.title }}</h1>
+      {% if page.description %}
+        <p class="post-deck">{{ page.description }}</p>
+      {% endif %}
+      <div class="post-meta">
+        {% if page.date %}<span>{{ page.date | date: "%b %-d, %Y" }}</span>{% endif %}
+        {% if page.read_time %}<span>{{ page.read_time }}</span>{% endif %}
+      </div>
+    </header>
+
+    {% if page.hero_image %}
+      <div class="post-hero-image">
+        <img src="{{ page.hero_image | relative_url }}" alt="{{ page.hero_alt | default: page.title }}">
+      </div>
+    {% endif %}
+
+    <div class="post-body">
+      {{ content }}
+    </div>
+  </article>
+</main>

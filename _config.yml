@@ -1,0 +1,9 @@
+title: ALLOY
+description: Modular infrastructure notes for LLM pretraining and post-training systems.
+url: ""
+baseurl: ""
+markdown: kramdown
+highlighter: rouge
+
+exclude:
+  - .DS_Store

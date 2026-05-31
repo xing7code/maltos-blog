@@ -1,0 +1,64 @@
+<svg width="1200" height="500" viewBox="0 0 1200 500" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font: 700 30px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
+      .subtitle { font: 500 14px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #64748b; }
+      .label { font: 700 14px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
+      .small { font: 500 13px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .edge { stroke: #334155; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+      .loop { stroke: #7c3aed; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#purple-arrow); }
+    </style>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#334155"/>
+    </marker>
+    <marker id="purple-arrow" markerWidth="12" markerHeight="12" refX="9" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L10 6 L2 10 Z" fill="#7c3aed"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="500" rx="28" fill="#f8fafc"/>
+  <text x="58" y="70" class="title">Runtime Phase Timeline</text>
+  <text x="58" y="98" class="subtitle">Setup and model transformation run once; the runtime step repeats data fetch, execution, backward hooks, and optimizer step.</text>
+
+  <!-- One-time row -->
+  <rect x="110" y="150" width="150" height="68" rx="15" fill="#dbeafe" stroke="#2563eb" stroke-width="2.4" filter="url(#shadow)"/>
+  <text x="160" y="190" class="label">SETUP</text>
+
+  <rect x="340" y="150" width="175" height="68" rx="15" fill="#ede9fe" stroke="#7c3aed" stroke-width="2.4" filter="url(#shadow)"/>
+  <text x="378" y="190" class="label">TRANSFORM</text>
+
+  <text x="125" y="245" class="small">one-time initialization</text>
+
+  <!-- Runtime step loop -->
+  <rect x="100" y="295" width="1000" height="135" rx="22" fill="#ffffff" stroke="#94a3b8" stroke-width="2.5" stroke-dasharray="10 8"/>
+  <text x="126" y="327" class="small">runtime step loop</text>
+
+  <rect x="155" y="345" width="140" height="60" rx="15" fill="#fff7ed" stroke="#ea580c" stroke-width="2.4" filter="url(#shadow)"/>
+  <text x="186" y="381" class="label">DATA NEXT</text>
+
+  <rect x="365" y="345" width="130" height="60" rx="15" fill="#ecfdf5" stroke="#059669" stroke-width="2.4" filter="url(#shadow)"/>
+  <text x="398" y="381" class="label">FORWARD</text>
+
+  <rect x="565" y="345" width="140" height="60" rx="15" fill="#fef3c7" stroke="#d97706" stroke-width="2.4" filter="url(#shadow)"/>
+  <text x="598" y="381" class="label">BACKWARD</text>
+
+  <rect x="775" y="345" width="170" height="60" rx="15" fill="#fce7f3" stroke="#db2777" stroke-width="2.4" filter="url(#shadow)"/>
+  <text x="809" y="381" class="label">OPTIMIZER STEP</text>
+
+  <!-- Edges -->
+  <line x1="260" y1="184" x2="340" y2="184" class="edge"/>
+  <path d="M515 184 H600 V295" class="edge"/>
+
+  <line x1="295" y1="375" x2="365" y2="375" class="edge"/>
+  <line x1="495" y1="375" x2="565" y2="375" class="edge"/>
+  <line x1="705" y1="375" x2="775" y2="375" class="edge"/>
+
+  <path d="M945 375 H1030 V455 H225 V405" class="loop"/>
+
+  <text x="574" y="276" class="small">enter training</text>
+  <text x="552" y="332" class="small">post-backward hooks reduce / shard grads</text>
+  <text x="605" y="474" class="small">next step</text>
+</svg>

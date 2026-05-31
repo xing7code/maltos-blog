@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
+    <meta name="description" content="{{ page.description | default: site.description }}">
+    <link rel="stylesheet" href="{{ '/styles.css' | relative_url }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="Primary">
+        <a class="brand" href="{{ '/' | relative_url }}">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>{{ site.title }}</span>
+        </a>
+        <div class="nav-links">
+          <a href="{{ '/' | relative_url }}">Writing</a>
+          <a href="https://github.com/xing7code/llm-train-systems">Repository</a>
+          <a href="https://api.wandb.ai/links/xing7-org/f2s88x30">W&amp;B Report</a>
+        </div>
+      </nav>
+    </header>
+
+    {{ content }}
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>{{ site.title }}</span>
+        <span>Readable infrastructure notes for fast research.</span>
+      </div>
+    </footer>
+  </body>
+</html>
