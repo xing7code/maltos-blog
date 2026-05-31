@@ -410,11 +410,11 @@ h1 {
 }
 
 .post-hero {
-  max-width: 920px;
+  max-width: 820px;
 }
 
 .post-hero h1 {
-  font-size: clamp(44px, 7vw, 86px);
+  font-size: clamp(28px, 3.4vw, 42px);
 }
 
 .post-deck {
@@ -435,6 +435,7 @@ h1 {
 
 .post-hero-image {
   overflow: hidden;
+  max-width: 820px;
   margin: 44px 0 54px;
   border: 1px solid var(--line);
   border-radius: 8px;
