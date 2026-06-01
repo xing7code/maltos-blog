@@ -5,7 +5,6 @@ description: Introducing MALTOS, a compact training runtime with process meshes,
 category: Runtime overview
 date: 2026-05-26
 read_time: 18 min read
-permalink: /blog/maltos-a-modular-runtime-for-llm-training.html
 hero_image: /blog/assets/runtime-overview.svg
 hero_alt: Runtime overview diagram
 ---

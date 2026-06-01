@@ -403,29 +403,28 @@ h1 {
   text-align: right;
 }
 
-body.article-page .post {
-  max-width: 804px;
+.post {
+  max-width: var(--max);
   margin: 0 auto;
-  padding: 52px 24px 84px;
+  padding: 62px 24px 84px;
 }
 
-body.article-page .post-hero {
-  max-width: 100%;
-}
-
-body.article-page .post-hero h1 {
+.post-hero {
   max-width: 820px;
-  font-size: clamp(25px, 2.5vw, 34px);
 }
 
-body.article-page .post-deck {
+.post-hero h1 {
+  font-size: clamp(28px, 3.4vw, 42px);
+}
+
+.post-deck {
   max-width: 760px;
   margin: 24px 0 0;
   color: var(--muted);
-  font-size: 19px;
+  font-size: 21px;
 }
 
-body.article-page .post-meta {
+.post-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
@@ -434,62 +433,62 @@ body.article-page .post-meta {
   font-size: 14px;
 }
 
-body.article-page .post-hero-image {
+.post-hero-image {
   overflow: hidden;
-  max-width: 100%;
+  max-width: 820px;
   margin: 44px 0 54px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
 }
 
-body.article-page .post-hero-image img {
+.post-hero-image img {
   display: block;
   width: 100%;
 }
 
-body.article-page .post-body {
-  max-width: 100%;
+.post-body {
+  max-width: 820px;
   font-size: 18px;
 }
 
-body.article-page .post-body h1 {
+.post-body h1 {
   display: none;
 }
 
-body.article-page .post-body h2 {
+.post-body h2 {
   margin-top: 58px;
   padding-top: 32px;
   border-top: 1px solid var(--line);
   font-size: 34px;
 }
 
-body.article-page .post-body h3 {
+.post-body h3 {
   margin-top: 34px;
   font-size: 24px;
 }
 
-body.article-page .post-body p,
-body.article-page .post-body ul,
-body.article-page .post-body ol {
+.post-body p,
+.post-body ul,
+.post-body ol {
   color: #292b28;
 }
 
-body.article-page .post-body p {
+.post-body p {
   margin: 18px 0;
 }
 
-body.article-page .post-body li {
+.post-body li {
   margin: 8px 0;
 }
 
-body.article-page .post-body a {
+.post-body a {
   color: var(--accent-strong);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-body.article-page .post-body img {
+.post-body img {
   display: block;
   max-width: 100%;
   margin: 28px 0;
@@ -498,7 +497,7 @@ body.article-page .post-body img {
   background: var(--panel);
 }
 
-body.article-page .post-body table {
+.post-body table {
   display: block;
   overflow-x: auto;
   width: 100%;
@@ -507,20 +506,20 @@ body.article-page .post-body table {
   font-size: 15px;
 }
 
-body.article-page .post-body th,
-body.article-page .post-body td {
+.post-body th,
+.post-body td {
   border-bottom: 1px solid var(--line);
   padding: 10px 12px;
   text-align: left;
   vertical-align: top;
 }
 
-body.article-page .post-body th {
+.post-body th {
   color: var(--ink);
   font-weight: 700;
 }
 
-body.article-page .post-body pre {
+.post-body pre {
   overflow-x: auto;
   border-radius: 8px;
   background: var(--code);
@@ -528,7 +527,7 @@ body.article-page .post-body pre {
   padding: 18px;
 }
 
-body.article-page .post-body pre code {
+.post-body pre code {
   background: transparent;
   color: inherit;
   padding: 0;
