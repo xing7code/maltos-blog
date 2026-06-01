@@ -1,6 +1,6 @@
 ---
 layout: post
-title: MALTOS: A Modular Runtime for LLM Training
+title: "MALTOS: A Modular Runtime for LLM Training"
 description: Building a compact training runtime with process meshes, composable parallel plugins, sharded checkpoints, token-stream resume, and real 1/2/4 GPU experiments.
 category: Runtime overview
 date: 2026-05-26
