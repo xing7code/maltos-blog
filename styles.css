@@ -506,6 +506,25 @@ h1 {
   font-size: 15px;
 }
 
+.post-body table:has(img) {
+  display: table;
+  table-layout: fixed;
+  overflow: visible;
+  width: 100%;
+}
+
+.post-body table:has(img) td {
+  width: 50%;
+  border-bottom: 0;
+  padding: 8px;
+}
+
+.post-body table:has(img) img {
+  width: 100%;
+  height: auto;
+  margin: 0;
+}
+
 .post-body th,
 .post-body td {
   border-bottom: 1px solid var(--line);
