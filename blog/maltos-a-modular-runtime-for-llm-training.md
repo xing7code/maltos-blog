@@ -11,23 +11,30 @@ hero_alt: Runtime overview diagram
 
 # MALTOS: A Modular Runtime for LLM Training
 
-Modern LLM pretraining systems are often described through their parallelism
-strategies: data parallelism, tensor parallelism, pipeline parallelism, ZeRO,
-expert parallelism, context parallelism. But the deeper systems problem is not
-any single strategy. It is how these strategies compose inside one training
-runtime without turning the trainer into a pile of special cases.
+The hardest part of building a pretraining runtime is not implementing any
+single parallel strategy. It is making them compose. TP+SP+ZeRO3 should not
+require a different trainer than bucketed DDP or a single-GPU baseline. Those
+are runtime behaviors. The trainer should not know the difference.
 
-I built this project to study that problem from first principles. The goal was
-not to replace Megatron-LM, DeepSpeed, FSDP, or any production training stack.
-The goal was to build something small enough to understand end to end, but
-realistic enough to contain the same moving pieces that show up in large-scale
-pretraining: process groups, model transformations, mixed precision, sharded
-optimizer state, resumable data loading, distributed checkpoints, and runtime
-metrics.
+That constraint turns out to be surprisingly hard to satisfy. Gradient
+synchronization, parameter sharding, optimizer ownership, checkpoint layout, and
+metric aggregation all have distributed semantics that vary by strategy. If
+those semantics leak into the trainer, every new parallel strategy becomes a
+cross-cutting edit. If they are contained behind a runtime/plugin boundary, the
+trainer stays stable and the strategies compose.
 
-This post describes the design of that runtime and the first set of real
-training experiments. The experiments are intentionally small. They are meant
-to validate system behavior, not to train a useful language model.
+I built MALTOS to study that problem from first principles. The goal was not to
+replace Megatron-LM, DeepSpeed, or FSDP. The goal was to build something small
+enough to understand end to end, but realistic enough to contain the same moving
+pieces that appear in production pretraining: process groups, model
+transformations, mixed precision, sharded optimizer state, resumable data
+loading, distributed checkpoints, and runtime metrics.
+
+This post covers the system design and the first set of real training
+experiments: single-GPU baselines, 2-GPU TP/SP and bucketed DDP runs, and a
+4-GPU composition of TP, SP, and ZeRO3 on real FineWeb-Edu data. The experiments
+are intentionally small. They are meant to validate runtime correctness, not to
+train a useful language model.
 
 repo: [xing7code/maltos](https://github.com/xing7code/maltos)
 
