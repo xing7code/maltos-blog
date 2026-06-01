@@ -404,7 +404,7 @@ h1 {
 }
 
 .post {
-  max-width: 868px;
+  max-width: 804px;
   margin: 0 auto;
   padding: 52px 24px 84px;
 }
@@ -415,14 +415,14 @@ h1 {
 
 .post-hero h1 {
   max-width: 820px;
-  font-size: clamp(26px, 3vw, 38px);
+  font-size: clamp(25px, 2.5vw, 34px);
 }
 
 .post-deck {
   max-width: 760px;
   margin: 24px 0 0;
   color: var(--muted);
-  font-size: 21px;
+  font-size: 19px;
 }
 
 .post-meta {
