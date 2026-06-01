@@ -403,29 +403,29 @@ h1 {
   text-align: right;
 }
 
-.post {
+body.article-page .post {
   max-width: 804px;
   margin: 0 auto;
   padding: 52px 24px 84px;
 }
 
-.post-hero {
+body.article-page .post-hero {
   max-width: 100%;
 }
 
-.post-hero h1 {
+body.article-page .post-hero h1 {
   max-width: 820px;
   font-size: clamp(25px, 2.5vw, 34px);
 }
 
-.post-deck {
+body.article-page .post-deck {
   max-width: 760px;
   margin: 24px 0 0;
   color: var(--muted);
   font-size: 19px;
 }
 
-.post-meta {
+body.article-page .post-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
@@ -434,7 +434,7 @@ h1 {
   font-size: 14px;
 }
 
-.post-hero-image {
+body.article-page .post-hero-image {
   overflow: hidden;
   max-width: 100%;
   margin: 44px 0 54px;
@@ -443,53 +443,53 @@ h1 {
   background: var(--panel);
 }
 
-.post-hero-image img {
+body.article-page .post-hero-image img {
   display: block;
   width: 100%;
 }
 
-.post-body {
+body.article-page .post-body {
   max-width: 100%;
   font-size: 18px;
 }
 
-.post-body h1 {
+body.article-page .post-body h1 {
   display: none;
 }
 
-.post-body h2 {
+body.article-page .post-body h2 {
   margin-top: 58px;
   padding-top: 32px;
   border-top: 1px solid var(--line);
   font-size: 34px;
 }
 
-.post-body h3 {
+body.article-page .post-body h3 {
   margin-top: 34px;
   font-size: 24px;
 }
 
-.post-body p,
-.post-body ul,
-.post-body ol {
+body.article-page .post-body p,
+body.article-page .post-body ul,
+body.article-page .post-body ol {
   color: #292b28;
 }
 
-.post-body p {
+body.article-page .post-body p {
   margin: 18px 0;
 }
 
-.post-body li {
+body.article-page .post-body li {
   margin: 8px 0;
 }
 
-.post-body a {
+body.article-page .post-body a {
   color: var(--accent-strong);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.post-body img {
+body.article-page .post-body img {
   display: block;
   max-width: 100%;
   margin: 28px 0;
@@ -498,7 +498,7 @@ h1 {
   background: var(--panel);
 }
 
-.post-body table {
+body.article-page .post-body table {
   display: block;
   overflow-x: auto;
   width: 100%;
@@ -507,20 +507,20 @@ h1 {
   font-size: 15px;
 }
 
-.post-body th,
-.post-body td {
+body.article-page .post-body th,
+body.article-page .post-body td {
   border-bottom: 1px solid var(--line);
   padding: 10px 12px;
   text-align: left;
   vertical-align: top;
 }
 
-.post-body th {
+body.article-page .post-body th {
   color: var(--ink);
   font-weight: 700;
 }
 
-.post-body pre {
+body.article-page .post-body pre {
   overflow-x: auto;
   border-radius: 8px;
   background: var(--code);
@@ -528,7 +528,7 @@ h1 {
   padding: 18px;
 }
 
-.post-body pre code {
+body.article-page .post-body pre code {
   background: transparent;
   color: inherit;
   padding: 0;
