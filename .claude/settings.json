@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/Users/rongfan/Desktop/projects/2026/train-system/maltos/**)",
+      "Read(/Users/rongfan/Desktop/projects/2026/train-system/maltos-blog/**)",
+      "Write(/Users/rongfan/Desktop/projects/2026/train-system/maltos-blog/blog/**)",
+      "Edit(/Users/rongfan/Desktop/projects/2026/train-system/maltos-blog/**)",
+      "Bash(find /Users/rongfan/Desktop/projects/2026/train-system/maltos**)",
+      "Bash(grep -r* /Users/rongfan/Desktop/projects/2026/train-system/maltos**)",
+      "Bash(ls /Users/rongfan/Desktop/projects/2026/train-system/maltos**)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ]
+  }
+}

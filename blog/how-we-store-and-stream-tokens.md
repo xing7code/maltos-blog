@@ -1,0 +1,351 @@
+---
+layout: post
+title: "How We Store and Stream Tokens"
+description: Pretraining data is not a labeled dataset. It's a stream of billions of tokens that must be stored efficiently, loaded without overhead, and resumed exactly after a checkpoint. This article covers the full data pipeline.
+category: Tutorial · Part 2 of 5
+date: 2026-06-11
+read_time: 10 min read
+---
+
+# How We Store and Stream Tokens
+
+A language model learns from a sequence of tokens. Not a collection of labeled
+examples — a single long sequence, billions of tokens end to end, from which we
+carve out overlapping windows for training.
+
+This distinction shapes everything about the data pipeline. A standard PyTorch
+`DataLoader` with a shuffle buffer doesn't fit this model. This article covers
+the actual data pipeline: how tokens are stored on disk, how they are accessed
+efficiently, how multiple GPUs get distinct windows, and how the data position
+is preserved across checkpoints.
+
+---
+
+## Why Not a Standard DataLoader
+
+Standard supervised learning has a clear data structure: a finite set of
+`(input, label)` pairs. You shuffle them, load them in random order, and iterate
+through all of them once per epoch.
+
+Pretraining has different requirements:
+
+- **Scale**: A real pretraining dataset might be 10 trillion tokens. An in-memory
+  shuffle index would take 80 GB by itself.
+- **Sequential structure**: Each training window is a contiguous slice of text.
+  Shuffling individual windows independently destroys the local coherence between
+  adjacent sentences and paragraphs. This hurts training signal quality.
+- **No meaningful epoch boundary**: Many pretraining runs are shorter than one
+  full pass through the data. There is no natural point to shuffle and restart.
+- **Deterministic partitioning**: In data-parallel training, each GPU must see
+  different windows at each step. The partitioning needs to be deterministic:
+  the same configuration with the same step count should produce the same windows,
+  both within a run and after a restart from a checkpoint.
+
+---
+
+---
+
+<div class="article-figure">
+  <img src="assets/token-shard-layout.svg" alt="Token shard layout and DP-aware windowing">
+</div>
+
+---
+
+## Token Shards
+
+The standard format for pretraining data is flat binary files — token shards —
+each containing a flat array of `uint32` token IDs:
+
+```
+/data/fineweb_edu/
+    shard_000000.bin   # 100M tokens × 4 bytes = 400 MB
+    shard_000001.bin
+    ...
+    shard_000099.bin
+```
+
+The full dataset is the concatenation of all shards in sorted order. To read from
+the dataset, you need to track which shard you're in and what byte offset you're
+at within that shard.
+
+Preparing these shards from raw text is a one-time preprocessing step: tokenize
+the text with your model's tokenizer and write the token IDs to flat binary files.
+The resulting files are simple enough to read from any language, verify with a
+hex editor, and concatenate trivially.
+
+---
+
+## Memory-Mapped Access
+
+Loading a 400 MB shard into RAM at the start of training would be wasteful and
+slow. The better approach is `numpy.memmap`, which maps the file into the
+process's virtual address space without reading it upfront:
+
+```python
+import numpy as np
+
+shard = np.memmap(path, mode="r", dtype=np.uint32)
+```
+
+Accessing `shard[i]` triggers an OS page fault that loads only the 4 KB page
+containing index `i`. The OS caches recently-used pages in RAM automatically.
+For sequential access (which pretraining mostly is), the OS prefetcher keeps
+the next pages warm, and reads are nearly as fast as reading from RAM.
+
+The result is that `TokenShardDataset` can manage hundreds of shards with a
+working set that fits in available RAM, without any manual cache management:
+
+```python
+class TokenShardDataset:
+    def __init__(self, paths, dtype=np.uint32):
+        self.shards = [np.memmap(path, mode="r", dtype=dtype) for path in paths]
+
+    def read(self, shard_idx, token_offset, length):
+        tokens = np.empty(length, dtype=self.shards[0].dtype)
+        written = 0
+        while written < length:
+            shard = self.shards[shard_idx]
+            take = min(length - written, shard.size - token_offset)
+            tokens[written:written + take] = shard[token_offset:token_offset + take]
+            written += take
+            token_offset += take
+            if token_offset >= shard.size:
+                shard_idx = (shard_idx + 1) % len(self.shards)
+                token_offset = 0
+        return tokens, shard_idx, token_offset
+```
+
+The return values `(shard_idx, token_offset)` are the updated cursor position
+after the read. The caller advances to the next window from these positions.
+
+Two details in `read()` are worth noting:
+
+**Boundary crossing**. A window may span two shards. The loop handles this
+naturally: when `token_offset` reaches the end of one shard, it wraps to the
+start of the next. The caller doesn't need to know that the read crossed a
+boundary.
+
+**Circular wrapping**. When the last shard is exhausted, `shard_idx` wraps back
+to 0. For most pretraining runs this never happens (the run ends before the
+data does). For longer runs, wrapping is correct: the model trains on the data
+multiple times in the same sequential order.
+
+---
+
+## The +1 Convention
+
+Each training example predicts the next token at every position. An example with
+sequence length `T` uses `T` input tokens and `T` label tokens. The label is
+the input shifted one position to the right:
+
+```
+tokens:     [t_0, t_1, t_2, t_3, ..., t_T]   ← T+1 raw tokens
+input_ids:  [t_0, t_1, t_2, t_3, ..., t_{T-1}]
+labels:     [t_1, t_2, t_3, t_4, ..., t_T    ]
+```
+
+So each training example consumes `seq_len + 1` raw tokens from the stream.
+This `+1` propagates through every data-related calculation:
+
+- Tokens consumed per micro-step = `micro_batch_size × (seq_len + 1)`
+- DP rank initial offset = `dp_rank × (seq_len + 1)`
+- Inter-sample advance = `(dp_world_size - 1) × (seq_len + 1)`
+
+If you use `seq_len` instead of `seq_len + 1` in any of these, the window
+boundaries are misaligned: labels overlap with the next example's inputs,
+and the training signal is corrupted.
+
+---
+
+## DP-Aware Data Partitioning
+
+In data-parallel training with `dp_world_size` replicas, each replica must see
+a different batch at each step. The simplest correct approach is a fixed offset:
+
+```
+dp_rank 0 reads windows starting at offsets:  0,   dp_world_size,   2*dp_world_size, ...
+dp_rank 1 reads windows starting at offsets:  1,   dp_world_size+1, 2*dp_world_size+1, ...
+dp_rank 2 reads windows starting at offsets:  2,   dp_world_size+2, 2*dp_world_size+2, ...
+```
+
+(Offsets here are in units of `seq_len + 1` tokens.)
+
+The loader initializes the cursor at the rank's starting position and advances
+by the full DP stride after each sample:
+
+```python
+class PretrainingDataLoader:
+    def __init__(self, dataset, seq_len, micro_batch_size, dp_rank, dp_world_size):
+        self.token_offset = dp_rank * (seq_len + 1)   # rank-specific start
+        self.dp_stride = dp_world_size * (seq_len + 1)
+
+    def next_batch(self):
+        samples = []
+        for _ in range(micro_batch_size):
+            sample, self.shard_idx, self.token_offset = self.dataset.read(
+                self.shard_idx, self.token_offset, self.seq_len + 1
+            )
+            samples.append(sample)
+            self._advance_to_next_dp_sample()
+        tokens = torch.from_numpy(np.stack(samples).astype(np.int64))
+        return {"input_ids": tokens[:, :-1], "labels": tokens[:, 1:]}
+
+    def _advance_to_next_dp_sample(self):
+        skip = (self.dp_world_size - 1) * (self.seq_len + 1)
+        if skip > 0:
+            _, self.shard_idx, self.token_offset = self.dataset.read(
+                self.shard_idx, self.token_offset, skip
+            )
+```
+
+After reading its own sample, each rank advances past the samples belonging to
+the other DP ranks, positioning itself at its next window.
+
+This partitioning has a useful property: **all DP ranks together cover the full
+token stream without gaps or overlaps**. Across all ranks, every token in the
+stream is consumed exactly once per full step.
+
+---
+
+## Multi-Sample Batches
+
+When `micro_batch_size > 1`, each call to `next_batch()` reads multiple
+consecutive samples. The samples within a single rank's batch are sequential
+in the token stream:
+
+```
+micro_batch_size = 2, dp_world_size = 2, dp_rank = 0:
+
+  step 0:
+    sample 0 → tokens [0 : seq_len+1]
+    (skip rank 1's sample)
+    sample 1 → tokens [2*(seq_len+1) : 3*(seq_len+1)]
+    (skip rank 1's sample)
+```
+
+The batch tensor has shape `[micro_batch_size, seq_len]`. The model processes
+all samples in a single forward pass.
+
+---
+
+## Stateful Resume
+
+The data cursor state that must be saved for an exact resume:
+
+```python
+@dataclass(frozen=True)
+class PretrainingDataState:
+    shard_idx: int       # which shard we're reading from
+    token_offset: int    # position within that shard
+    consumed_tokens: int # total tokens seen (for logging, not resume)
+    seed: int            # for any randomness in preprocessing
+```
+
+`shard_idx` and `token_offset` are the only fields required for correct resume.
+`consumed_tokens` is a logging counter. `seed` is for reproducibility of any
+stochastic preprocessing step applied at load time (none by default in MALTOS,
+but useful to preserve for future compatibility).
+
+The state is serialized and bundled into the checkpoint alongside model weights
+and optimizer state:
+
+```python
+# Saved in trainer_rank_N.pt
+{
+    "step_context": ...,
+    "dataloader": {
+        "shard_idx": 3,
+        "token_offset": 47382,
+        "consumed_tokens": 1024000,
+        "seed": 1234,
+    },
+    "rng": {"cpu": ..., "cuda": ...}
+}
+```
+
+On resume, the loader is restored before the first call to `next_batch()`:
+
+```python
+loader.load_state_dict(checkpoint["dataloader"])
+# next next_batch() reads from exactly where training was interrupted
+```
+
+**What goes wrong without this**. A run that resumes without restoring the data
+cursor will read from token offset 0 — the beginning of shard 0 — at step 1
+after resume. If the checkpoint was at step 5,000, the model has already trained
+on those tokens. Re-training on the same tokens isn't catastrophically wrong, but
+it produces a subtly different model than an uninterrupted run, and the
+difference is invisible in the loss curve.
+
+**RNG state**. Saving and restoring CPU and CUDA RNG state is needed to reproduce
+the exact sequence of dropout masks, weight initialization noise (if any), and
+other stochastic operations. Omitting it doesn't break training, but the resumed
+run diverges from what an uninterrupted run would have produced at that step.
+
+---
+
+## The Full Loader Lifecycle
+
+The loader's relationship to the rest of the training system is intentionally
+minimal. The runtime core does not own the dataloader. The trainer owns it:
+
+```python
+class Trainer:
+    def fit(self):
+        while step < max_steps:
+            batch = self.dataloader.next_batch()   # trainer drives data
+            loss, should_step = self.runtime.run_step(batch)
+            if should_step:
+                self.runtime.step_optimizer()
+```
+
+The `StateManager` binds them together only for checkpointing:
+
+```python
+trainer_state = state_manager.export_trainer_state()
+# includes dataloader.state_dict()
+```
+
+This decoupling matters when the training objective changes. A supervised
+finetuning run uses a different dataloader that produces `(prompt, completion)`
+pairs with per-token loss masking. A preference training run produces
+`(chosen, rejected)` pairs. Both produce `dict[str, Tensor]` batches that the
+model consumes. Neither requires a different runtime. Only the dataloader changes.
+
+---
+
+## Preparing Data
+
+The tools to prepare token shards are simple. For FineWeb-Edu, the workflow is:
+
+1. Download the dataset in Arrow/Parquet format
+2. Tokenize with a standard HuggingFace tokenizer
+3. Write the token IDs to flat binary files in `uint32` format
+
+A minimal shard writer:
+
+```python
+import numpy as np
+
+def write_shard(token_ids: list[int], path: str) -> None:
+    arr = np.array(token_ids, dtype=np.uint32)
+    arr.tofile(path)
+```
+
+Token IDs fit in `uint16` for vocabularies up to 65,535, but `uint32` handles
+all current LLaMA/GPT tokenizers (vocabularies of 32k–128k) without overflow.
+The storage cost is 4 bytes per token — 400 MB for 100M tokens — which is
+acceptable given the access pattern.
+
+---
+
+## What's Next
+
+The next article covers data parallelism: how gradient all-reduce works, why
+the bucketed approach matters for overlap, and what goes wrong in the naive
+synchronous version.
+
+The data pipeline established here — token shards, memory-mapped access,
+DP-aware windowing, stateful resume — is the foundation that all distributed
+training configurations build on. A correctly implemented data loader is one of
+the few components that doesn't change as you scale from one GPU to a thousand.

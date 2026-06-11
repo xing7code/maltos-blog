@@ -6,7 +6,7 @@
     <title>Writing - MALTOS</title>
     <meta
       name="description"
-      content="Technical writing on LLM pretraining runtime design, distributed checkpointing, profiler traces, and post-training infrastructure."
+      content="Technical writing on LLM pretraining runtime design, distributed training infrastructure, and the engineering behind training large language models."
     >
     <link rel="stylesheet" href="../styles.css">
   </head>
@@ -29,25 +29,156 @@
         <p class="eyebrow">Technical blog</p>
         <h1>Notes from building MALTOS.</h1>
         <p>
-          A series on runtime control planes, distributed state, checkpointing,
-          profiler traces, parallelism, and the path from pretraining to
-          post-training services.
+          Two ongoing series: a deep-dive track on the design decisions behind
+          distributed training systems, and a tutorial track building a
+          pretraining stack from first principles.
         </p>
       </section>
 
       <section class="post-list" aria-label="Posts">
+
+        <div class="series-label">System overview</div>
+
         <article class="post-row">
-          <div class="meta">Published</div>
+          <div class="meta">May 26, 2026</div>
           <div>
             <h2><a href="maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h2>
             <p>
-              A full-system overview of RuntimeCore, plugin ordering, TP/SP, DDP,
-              ZeRO stages, sharded checkpointing, data resume, metrics, and real
-              1/2/4 GPU experiments.
+              A full-system overview of RuntimeCore, plugin ordering, all ten
+              parallelism strategies, sharded checkpointing, data resume, and
+              real 1/2/4 GPU experiments on FineWeb-Edu data.
             </p>
           </div>
-          <div class="status">System overview</div>
+          <div class="status">Published</div>
         </article>
+
+        <div class="series-label">Deep-dive series</div>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="composable-parallelism.html">Why Composable Parallelism Is Hard</a></h2>
+            <p>
+              The five surfaces where parallelism strategies must coordinate —
+              model transformation ordering, gradient synchronization callbacks,
+              exclusive optimizer ownership, sharded checkpoint manifests, and
+              topology-corrected metrics — and the plugin protocol that keeps
+              them decoupled.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="optimizer-lifecycle-under-sharding.html">The Optimizer Lifecycle Under Sharding</a></h2>
+            <p>
+              Why creating an optimizer before model transformation produces
+              plausible-but-wrong training: the deferred factory pattern, single-owner
+              enforcement, gradient norm under sharded gradients, and checkpoint
+              source rank mapping for mixed ZeRO and TP configurations.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="checkpoint-semantics-under-sharding.html">Checkpoint Semantics Under Sharding</a></h2>
+            <p>
+              What state is actually required for an exact resume, how the manifest
+              records per-rank plugin annotations for TP and ZeRO-3 shards, why the
+              atomic write protocol matters, and what topology change on resume
+              requires that isn't yet implemented.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="pipeline-parallel-schedules.html">Pipeline Parallel Schedules</a></h2>
+            <p>
+              AFAB vs. 1F1B schedules: how they're constructed per-stage, the
+              warmup/steady-state/drain phases, why ZeRO-3 needs per-microbatch
+              exec states, and what the papers leave unspecified about the
+              send/receive protocol and gradient accumulation interaction.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <div class="series-label">Tutorial series</div>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></h2>
+            <p>
+              The minimal training loop and what it leaves out: gradient
+              accumulation, mixed precision, data cursors, checkpointing, and
+              why the trainer structure matters when you scale.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></h2>
+            <p>
+              Token shards, memory-mapped binary files, DP-aware windowing,
+              the +1 convention, and how the data cursor is preserved for
+              an exact checkpoint resume.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></h2>
+            <p>
+              Synchronous all-reduce, bucketed DDP with async communication-compute
+              overlap, flat gradient buffers, gradient accumulation under DDP, and
+              expert parameter exclusion.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="tensor-and-sequence-parallelism.html">Tensor and Sequence Parallelism</a></h2>
+            <p>
+              ColumnParallelLinear and RowParallelLinear, why attention uses the
+              same column/row pattern, sequence parallelism's sequence-dimension
+              activation sharding, memory math at different TP world sizes.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="zero-optimizer-sharding.html">ZeRO Optimizer Sharding</a></h2>
+            <p>
+              ZeRO stages 1, 2, and 3: what each shards, the memory math, module-level
+              wrapping, prefetch-based all-gather overlap, reduce-scatter for gradient
+              sync, and the factory pattern that prevents silent optimizer state
+              corruption.
+            </p>
+          </div>
+          <div class="status">Published</div>
+        </article>
+
       </section>
     </main>
 

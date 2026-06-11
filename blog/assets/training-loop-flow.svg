@@ -1,0 +1,83 @@
+<svg width="1200" height="540" viewBox="0 0 1200 540" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font: 700 28px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
+      .subtitle { font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; fill: #64748b; }
+      .label { font: 700 16px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
+      .code { font: 600 13px "JetBrains Mono", "Fira Code", ui-monospace, monospace; fill: #1e293b; }
+      .small { font: 500 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #475569; }
+      .note { font: 500 12px Inter, ui-sans-serif, system-ui, sans-serif; fill: #6b7280; }
+      .edge { stroke: #334155; stroke-width: 2.5; stroke-linecap: round; marker-end: url(#arrow); fill: none; }
+    </style>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M2 2 L9 5 L2 8 Z" fill="#334155"/>
+    </marker>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.09"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="540" rx="28" fill="#f8fafc"/>
+  <text x="60" y="62" class="title">The Full Single-GPU Training Loop</text>
+  <text x="60" y="88" class="subtitle">Gradient accumulation, mixed precision, clipping, and checkpointing layered onto the minimal loop.</text>
+
+  <!-- Outer step loop box -->
+  <rect x="40" y="112" width="1120" height="360" rx="16" fill="#f1f5f9" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8 4"/>
+  <text x="72" y="140" class="small">for step in range(start_step, max_steps):  ← outer loop</text>
+
+  <!-- zero_grad -->
+  <rect x="80" y="155" width="240" height="50" rx="12" fill="#fce7f3" stroke="#db2777" stroke-width="2" filter="url(#shadow)"/>
+  <text x="200" y="175" class="code" text-anchor="middle">optimizer.zero_grad()</text>
+  <text x="200" y="195" class="note" text-anchor="middle">clear accumulated grads</text>
+
+  <!-- grad accum loop box -->
+  <rect x="360" y="148" width="480" height="200" rx="14" fill="#ede9fe" stroke="#7c3aed" stroke-width="2" stroke-dasharray="6 3" fill-opacity="0.5"/>
+  <text x="600" y="172" class="small" text-anchor="middle">for micro_step in range(grad_accum_steps):  ← inner accum loop</text>
+
+  <!-- get batch -->
+  <rect x="390" y="184" width="180" height="48" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="1.8" filter="url(#shadow)"/>
+  <text x="480" y="203" class="code" text-anchor="middle">dataloader</text>
+  <text x="480" y="221" class="code" text-anchor="middle">.next_batch()</text>
+
+  <!-- forward -->
+  <rect x="600" y="184" width="180" height="48" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="1.8" filter="url(#shadow)"/>
+  <text x="690" y="203" class="code" text-anchor="middle">autocast(bf16)</text>
+  <text x="690" y="221" class="code" text-anchor="middle">model(batch)</text>
+
+  <!-- backward -->
+  <rect x="490" y="263" width="180" height="48" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="1.8" filter="url(#shadow)"/>
+  <text x="580" y="282" class="code" text-anchor="middle">loss /= accum_steps</text>
+  <text x="580" y="300" class="code" text-anchor="middle">loss.backward()</text>
+
+  <!-- arrows inside accum loop -->
+  <line x1="570" y1="208" x2="598" y2="208" class="edge"/>
+  <path d="M 690 232 Q 690 255 580 260" class="edge"/>
+  <path d="M 480 232 Q 480 255 490 263" class="edge"/>
+
+  <!-- clip -->
+  <rect x="880" y="155" width="240" height="50" rx="12" fill="#ecfdf5" stroke="#059669" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1000" y="175" class="code" text-anchor="middle">clip_grad_norm_(...)</text>
+  <text x="1000" y="195" class="note" text-anchor="middle">after all micro-steps</text>
+
+  <!-- optimizer step -->
+  <rect x="880" y="226" width="240" height="50" rx="12" fill="#fce7f3" stroke="#db2777" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1000" y="246" class="code" text-anchor="middle">optimizer.step()</text>
+  <text x="1000" y="265" class="note" text-anchor="middle">scheduler.step()</text>
+
+  <!-- log/checkpoint -->
+  <rect x="460" y="385" width="280" height="60" rx="12" fill="#ccfbf1" stroke="#0f766e" stroke-width="2" filter="url(#shadow)"/>
+  <text x="600" y="408" class="code" text-anchor="middle">if step % log_every == 0:</text>
+  <text x="600" y="428" class="code" text-anchor="middle">log metrics / save checkpoint</text>
+
+  <!-- Connecting arrows (outer flow) -->
+  <line x1="320" y1="180" x2="358" y2="180" class="edge"/>
+  <line x1="840" y1="228" x2="878" y2="228" class="edge"/>
+  <line x1="1000" y1="205" x2="1000" y2="224" class="edge"/>
+  <line x1="1000" y1="276" x2="740" y2="415" class="edge"/>
+
+  <!-- Side annotations -->
+  <text x="60" y="490" class="note">① zero_grad before accumulation loop, not inside it</text>
+  <text x="60" y="510" class="note">② loss must be divided by grad_accum_steps inside the loop — not after</text>
+  <text x="500" y="490" class="note">③ gradient clipping uses the summed gradient; runs once per optimizer step</text>
+  <text x="500" y="510" class="note">④ data cursor advances every micro-step; checkpoint must save cursor state</text>
+</svg>

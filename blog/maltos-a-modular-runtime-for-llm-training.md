@@ -158,30 +158,31 @@ is at most one optimizer owner.
 
 ## Composable Parallelism
 
-The current runtime supports several parallelism plugins:
+The runtime currently supports ten parallelism plugins across all major distributed
+training axes:
 
 | Strategy | Implementation role |
 |---|---|
-| Tensor Parallelism | Shards selected linear layers across a tensor-parallel group |
-| Sequence Parallelism | Partitions sequence activations around TP regions |
-| DDP | Provides synchronous and asynchronous gradient reduction |
-| Bucketed DDP | Reduces gradients by buckets to enable overlap-style behavior |
-| ZeRO1 | Shards optimizer state |
+| Tensor Parallelism | Shards linear layers across a TP group; introduces `ColumnParallelLinear` and `RowParallelLinear` |
+| Sequence Parallelism | Partitions sequence-dimension activations around TP regions |
+| DDP | Synchronous and asynchronous gradient all-reduce |
+| Bucketed DDP | Gradient reduction by bucket to enable communication-compute overlap |
+| Pipeline Parallelism | Stages layers across PP ranks; supports 1F1B, interleaved, and zero-bubble schedules |
+| Context Parallelism | Shards sequence length across CP ranks; all-gather-KV and ring-attention variants |
+| Expert Parallelism | Routes tokens to expert subsets across EP ranks; supports TP/CP dimension reuse |
+| ZeRO1 | Shards optimizer state across DP ranks |
 | ZeRO2 | Shards optimizer state and gradients |
-| ZeRO3 | Shards optimizer state, gradients, and parameters |
+| ZeRO3 | Shards optimizer state, gradients, and parameters; materializes parameters on demand |
 
 The important part is not that each plugin is production complete. The important
 part is that they compose through the same runtime interface. The same trainer
-can run single-GPU training, TP+SP, DDP, or DP+TP+SP+ZeRO3.
+can run single-GPU training, TP+SP, bucketed DDP, or DP+TP+SP+ZeRO3.
 
-Future plugins can follow the same pattern:
+Future work follows the same plugin pattern:
 
-- pipeline parallelism,
-- context parallelism,
-- expert parallelism,
-- activation checkpointing,
 - fused optimizer paths,
-- communication scheduling.
+- communication scheduling and overlap,
+- FlashAttention and custom attention kernels.
 
 ## Distributed Checkpointing
 
@@ -534,16 +535,33 @@ GPU-bound.
 
 ## What Comes Next
 
-This post covered the system design and first training evidence. The next posts
-will go deeper into individual subsystems:
+This post covered the system design and the first set of training evidence. Two
+ongoing series go deeper:
 
-1. Tensor and sequence parallelism: sharding linear layers and activations.
-2. Bucketed DDP: why gradient reduction order matters.
-3. ZeRO1, ZeRO2, and ZeRO3: what gets sharded at each stage.
-4. Distributed checkpointing: logical tensors, local shards, and resume.
-5. Performance work: FlashAttention, fused kernels, and profiling.
-6. A 4-GPU mini pretraining run: TP/SP/ZeRO3 with real data and W&B artifacts.
+**Deep-dive series** — design decisions, tradeoffs, and implementation details
+for engineers building or evaluating similar systems:
+
+1. *Why composable parallelism is hard*: the five interaction surfaces and the
+   plugin protocol that contains them.
+2. *The optimizer lifecycle under sharding*: why the factory pattern matters and
+   where the naive approach silently produces wrong results.
+3. *Checkpoint semantics under sharding*: manifests, atomic writes, and what
+   state is actually required for a correct resume.
+4. *Pipeline parallel schedules*: what the papers leave unspecified about
+   implementation.
+
+**Tutorial series** — building a pretraining system from first principles, one
+component at a time:
+
+1. *The pretraining loop, from scratch*: the minimal training loop and what it
+   leaves out.
+2. *How we store and stream tokens*: shards, memory mapping, and DP-aware data
+   loading with deterministic resume.
+3. *Data parallelism*: gradient reduction semantics and bucketed DDP.
+4. *Tensor and sequence parallelism*: sharding linear layers and activations.
+5. *ZeRO optimizer sharding*: what gets distributed at each of the three stages.
 
 The long-term goal is not just to build another training script. It is to build
 a compact, inspectable runtime that makes modern pretraining infrastructure
-easier to reason about.
+easier to reason about—and to document the design decisions clearly enough that
+the same patterns can be extended to post-training and beyond.
