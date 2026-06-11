@@ -31,7 +31,7 @@ special-cased optimizer initialization code.
 ---
 
 <div class="article-figure">
-  <img src="assets/optimizer-lifecycle.svg" alt="Optimizer lifecycle: factory pattern and deferred construction">
+  <img src="../assets/optimizer-lifecycle.svg" alt="Optimizer lifecycle: factory pattern and deferred construction">
 </div>
 
 ---

@@ -29,7 +29,7 @@ the interesting design decisions live.
 ---
 
 <div class="article-figure">
-  <img src="assets/checkpoint-layout.svg" alt="Checkpoint layout: files, manifest, and atomic write protocol">
+  <img src="../assets/checkpoint-layout.svg" alt="Checkpoint layout: files, manifest, and atomic write protocol">
 </div>
 
 ---

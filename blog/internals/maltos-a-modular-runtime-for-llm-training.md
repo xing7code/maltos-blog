@@ -70,7 +70,7 @@ The runtime is organized around a small number of components. The trainer drives
 policy; the runtime drives execution; plugins own distributed behavior; the
 state manager owns checkpoint boundaries.
 
-<img src="assets/runtime-overview.svg" alt="Runtime overview" width="100%">
+<img src="../assets/runtime-overview.svg" alt="Runtime overview" width="100%">
 
 The trainer is deliberately boring. It decides how many steps to run, when to
 log, and when to checkpoint. It does not know whether gradients are synchronized
@@ -88,7 +88,7 @@ but checkpoint/resume needs both.
 
 The core abstraction is a sequence of runtime phases:
 
-<img src="assets/runtime-phases.svg" alt="Runtime phase timeline" width="100%">
+<img src="../assets/runtime-phases.svg" alt="Runtime phase timeline" width="100%">
 
 Each plugin can hook into the phases it cares about. For example:
 
@@ -127,7 +127,7 @@ Each plugin declares a stable plugin id and optional dependency constraints. The
 runtime resolves the plugin order with a small topological sort before executing
 phase hooks.
 
-<img src="assets/plugin-dependencies.svg" alt="Plugin dependency graph" width="100%">
+<img src="../assets/plugin-dependencies.svg" alt="Plugin dependency graph" width="100%">
 
 This is intentionally stricter than relying on construction order. It makes
 plugin composition explicit and catches invalid runtime configurations early.
@@ -189,7 +189,7 @@ Future work follows the same plugin pattern:
 Checkpointing is where the runtime design becomes more than a clean training
 loop.
 
-<img src="assets/checkpoint-flow.svg" alt="Distributed checkpoint flow" width="100%">
+<img src="../assets/checkpoint-flow.svg" alt="Distributed checkpoint flow" width="100%">
 
 In a single-process PyTorch script, checkpointing is often just:
 
@@ -369,12 +369,12 @@ Small single-GPU run:
 
 <table>
 <tr>
-<td><img src="assets/wandb-small-loss.png" alt="Single-GPU small loss"></td>
-<td><img src="assets/wandb-small-tokens-per-sec.png" alt="Single-GPU small throughput"></td>
+<td><img src="../assets/wandb-small-loss.png" alt="Single-GPU small loss"></td>
+<td><img src="../assets/wandb-small-tokens-per-sec.png" alt="Single-GPU small throughput"></td>
 </tr>
 <tr>
-<td><img src="assets/wandb-small-tflops.png" alt="Single-GPU small TFLOPS"></td>
-<td><img src="assets/wandb-small-memory.png" alt="Single-GPU small memory"></td>
+<td><img src="../assets/wandb-small-tflops.png" alt="Single-GPU small TFLOPS"></td>
+<td><img src="../assets/wandb-small-memory.png" alt="Single-GPU small memory"></td>
 </tr>
 </table>
 
@@ -392,12 +392,12 @@ Bigger single-GPU run:
 
 <table>
 <tr>
-<td><img src="assets/wandb-bigger-loss.png" alt="Single-GPU bigger loss"></td>
-<td><img src="assets/wandb-bigger-tokens-per-sec.png" alt="Single-GPU bigger throughput"></td>
+<td><img src="../assets/wandb-bigger-loss.png" alt="Single-GPU bigger loss"></td>
+<td><img src="../assets/wandb-bigger-tokens-per-sec.png" alt="Single-GPU bigger throughput"></td>
 </tr>
 <tr>
-<td><img src="assets/wandb-bigger-tflops.png" alt="Single-GPU bigger TFLOPS"></td>
-<td><img src="assets/wandb-bigger-memory.png" alt="Single-GPU bigger memory"></td>
+<td><img src="../assets/wandb-bigger-tflops.png" alt="Single-GPU bigger TFLOPS"></td>
+<td><img src="../assets/wandb-bigger-memory.png" alt="Single-GPU bigger memory"></td>
 </tr>
 </table>
 
@@ -412,12 +412,12 @@ warmup effects, but steady-state throughput returned to the previous range.
 
 <table>
 <tr>
-<td><img src="assets/wandb-small-resume-loss.png" alt="Single-GPU small resume loss"></td>
-<td><img src="assets/wandb-small-resume-tokens-per-sec.png" alt="Single-GPU small resume throughput"></td>
+<td><img src="../assets/wandb-small-resume-loss.png" alt="Single-GPU small resume loss"></td>
+<td><img src="../assets/wandb-small-resume-tokens-per-sec.png" alt="Single-GPU small resume throughput"></td>
 </tr>
 <tr>
-<td><img src="assets/wandb-small-resume-tflops.png" alt="Single-GPU small resume TFLOPS"></td>
-<td><img src="assets/wandb-small-resume-memory.png" alt="Single-GPU small resume memory"></td>
+<td><img src="../assets/wandb-small-resume-tflops.png" alt="Single-GPU small resume TFLOPS"></td>
+<td><img src="../assets/wandb-small-resume-memory.png" alt="Single-GPU small resume memory"></td>
 </tr>
 </table>
 
@@ -445,12 +445,12 @@ TP+SP run:
 
 <table>
 <tr>
-<td><img src="assets/wandb-tp2-sp-loss.png" alt="TP2 SP loss"></td>
-<td><img src="assets/wandb-tp2-sp-tokens-per-sec.png" alt="TP2 SP throughput"></td>
+<td><img src="../assets/wandb-tp2-sp-loss.png" alt="TP2 SP loss"></td>
+<td><img src="../assets/wandb-tp2-sp-tokens-per-sec.png" alt="TP2 SP throughput"></td>
 </tr>
 <tr>
-<td><img src="assets/wandb-tp2-sp-tflops.png" alt="TP2 SP TFLOPS"></td>
-<td><img src="assets/wandb-tp2-sp-memory.png" alt="TP2 SP memory"></td>
+<td><img src="../assets/wandb-tp2-sp-tflops.png" alt="TP2 SP TFLOPS"></td>
+<td><img src="../assets/wandb-tp2-sp-memory.png" alt="TP2 SP memory"></td>
 </tr>
 </table>
 
@@ -464,12 +464,12 @@ Bucketed DDP run:
 
 <table>
 <tr>
-<td><img src="assets/wandb-dp2-bucket-loss.png" alt="DP2 bucket DDP loss"></td>
-<td><img src="assets/wandb-dp2-bucket-tokens-per-sec.png" alt="DP2 bucket DDP throughput"></td>
+<td><img src="../assets/wandb-dp2-bucket-loss.png" alt="DP2 bucket DDP loss"></td>
+<td><img src="../assets/wandb-dp2-bucket-tokens-per-sec.png" alt="DP2 bucket DDP throughput"></td>
 </tr>
 <tr>
-<td><img src="assets/wandb-dp2-bucket-tflops.png" alt="DP2 bucket DDP TFLOPS"></td>
-<td><img src="assets/wandb-dp2-bucket-memory.png" alt="DP2 bucket DDP memory"></td>
+<td><img src="../assets/wandb-dp2-bucket-tflops.png" alt="DP2 bucket DDP TFLOPS"></td>
+<td><img src="../assets/wandb-dp2-bucket-memory.png" alt="DP2 bucket DDP memory"></td>
 </tr>
 </table>
 
@@ -487,12 +487,12 @@ parameter sharding, optimizer ownership, distributed checkpointing, and resume.
 
 <table>
 <tr>
-<td><img src="assets/wandb-4gpu-zero3-loss.png" alt="4GPU ZeRO3 loss"></td>
-<td><img src="assets/wandb-4gpu-zero3-tokens-per-sec.png" alt="4GPU ZeRO3 throughput"></td>
+<td><img src="../assets/wandb-4gpu-zero3-loss.png" alt="4GPU ZeRO3 loss"></td>
+<td><img src="../assets/wandb-4gpu-zero3-tokens-per-sec.png" alt="4GPU ZeRO3 throughput"></td>
 </tr>
 <tr>
-<td><img src="assets/wandb-4gpu-zero3-tflops.png" alt="4GPU ZeRO3 TFLOPS"></td>
-<td><img src="assets/wandb-4gpu-zero3-memory.png" alt="4GPU ZeRO3 memory"></td>
+<td><img src="../assets/wandb-4gpu-zero3-tflops.png" alt="4GPU ZeRO3 TFLOPS"></td>
+<td><img src="../assets/wandb-4gpu-zero3-memory.png" alt="4GPU ZeRO3 memory"></td>
 </tr>
 </table>
 

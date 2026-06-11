@@ -18,9 +18,11 @@ operation.
 Sequence parallelism extends this by sharding the activations between layers across
 the sequence dimension, cutting activation memory by a factor of the TP world size.
 
-Together, TP and SP are the workhorses of large-model training. A 70B-parameter
-model cannot fit on a single 80GB GPU even for inference; TP with world_size=4
-(or 8) spreads the memory across devices while keeping compute density high.
+Together, TP and SP are the workhorses of large-model training. Data parallelism
+alone doesn't solve the memory problem — each DDP replica still holds the full
+model. A 70B-parameter model at 12 bytes/param needs ~840 GB; no single GPU has
+that. TP splits the model itself across GPUs, so each device only holds `1/N` of
+each weight matrix while remaining fully busy with computation.
 
 ---
 
@@ -53,7 +55,7 @@ Only one all-reduce is needed, at the output of `W_2`.
 ---
 
 <div class="article-figure">
-  <img src="assets/tp-sharding-diagram.svg" alt="TP sharding: ColumnParallelLinear and RowParallelLinear">
+  <img src="../assets/tp-sharding-diagram.svg" alt="TP sharding: ColumnParallelLinear and RowParallelLinear">
 </div>
 
 ---
@@ -98,21 +100,22 @@ triggers an all-gather.
 
 ```python
 class RowParallelLinear(nn.Module):
-    def __init__(self, in_features, out_features, tp_group, post_comm, comm_dim=None):
+    def __init__(self, in_features, out_features, tp_group, comm="none"):
         self.weight = nn.Parameter(
             torch.zeros(out_features, in_features // world_size)
         )  # local weight: [d_out, d_in/N]
         self.tp_group = tp_group
-        self.post_comm = post_comm  # "all_reduce" or "all_to_all"
-        self.comm_dim = comm_dim
+        self.comm = comm  # "all_reduce" (vanilla TP) or "reduce_scatter" (SP)
 
     def forward(self, x_sharded):
         # x_sharded: [B, T, d_in/N] — already sharded by ColumnParallelLinear
-        z_partial = F.linear(x_sharded, self.weight)  # [B, T, d_out]
-        if self.post_comm == "all_reduce":
-            dist.all_reduce(z_partial, group=self.tp_group)  # sum across ranks
-        elif self.post_comm == "all_to_all":
-            z_partial = all_to_all_along_seq_dim(z_partial, self.tp_group)
+        z_partial = F.linear(x_sharded, self.weight)  # [B, T, d_out] — partial result
+        if self.comm == "all_reduce":
+            dist.all_reduce(z_partial, group=self.tp_group)  # sum → replicate
+        elif self.comm == "reduce_scatter":
+            # SP: sum partial results AND scatter to sequence shards in one op
+            # output: [B, T/N, d_out] — sequence-sharded for the SP region
+            z_partial = reduce_scatter(z_partial, self.tp_group, dim=1)
         return z_partial
 ```
 
@@ -179,34 +182,41 @@ memory wasted.
 Between TP layers, each rank holds `[B, T/N, d_model]` rather than `[B, T, d_model]`.
 This cuts activation memory by a factor of the TP world size.
 
-The communication changes:
-- **Before `ColumnParallelLinear`**: an all-gather along the sequence dimension
-  reconstructs the full-sequence activation, so each rank's matmul sees all tokens
-  (still with its own weight columns).
+The communication changes at every TP layer boundary:
 
-  Actually, this isn't quite right. With SP, the input scatter goes the other way.
-  Let me be precise:
+- **Entering a transformer block** (SP region → full sequence): the
+  `SequenceParallelPlugin` registers a forward pre-hook on the attention/MLP
+  block as a whole — not on the individual linear layers inside it. The hook
+  runs before the block's forward method, all-gathering `[B, T/N, d_model]` into
+  `[B, T, d_model]`. The `ColumnParallelLinear` layers inside the block then see
+  the full-sequence input and compute normally.
 
-  Before the column-parallel layer, we don't all-gather. Instead, we scatter: the
-  sequence-sharded input `[B, T/N, d_model]` is processed as-is, since each rank
-  has full `d_model` but only `T/N` sequence positions. Wait - this requires the
-  matrix multiply to work on a subset of sequence positions but the full feature
-  dimension. That's fine: `[B, T/N, d_model] @ [d_model, d_out/N]` → `[B, T/N, d_out/N]`.
-  We need to gather across ranks to get `[B, T, d_out/N]`? No...
+- **Exiting a transformer block** (full sequence → SP region): the final
+  `RowParallelLinear` uses `comm="reduce_scatter"` instead of `comm="all_reduce"`.
+  Rather than summing the partial results and replicating them on all ranks, it
+  reduce-scatters along the sequence dimension: each rank receives the fully-summed
+  result for only its assigned sequence slice. Output shape: `[B, T/N, d_model]`.
 
-  Actually the clean description: with SP the communication ops at the TP boundaries
-  become all-to-all (scatter/gather along the seq+feature dimensions simultaneously).
+```
+SP region (layer norm, residual, dropout):
+  each rank holds [B, T/N, d_model]
 
-  In MALTOS, `RowParallelLinear` with `post_comm="all_to_all"` and `comm_dim=...`
-  handles the SP case.
+  ↓  all-gather (SP plugin hook before attention/MLP)
 
-- **After `RowParallelLinear`**: instead of an all-reduce (which would replicate the
-  result), an all-to-all reshards the result along the sequence dimension, producing
-  `[B, T/N, d_model]` for the next layer.
+Inside TP layers:
+  ColumnParallel input:  [B, T, d_model]   ← full sequence
+  ColumnParallel output: [B, T, d_out/N]   ← feature-sharded
+  RowParallel output:    reduce_scatter
+                       → [B, T/N, d_model] ← back to sequence-sharded
 
-The net result: between every pair of TP layers, activations stay sharded along
-the sequence dimension. The all-reduce (2× bandwidth of a reduce-scatter) is replaced
-by two cheaper all-to-alls.
+  ↓  next SP region continues with [B, T/N, d_model]
+```
+
+The net effect: layer norm, residual connections, and dropout operate on
+`[B, T/N, d_model]` rather than `[B, T, d_model]`, cutting their activation
+memory by a factor of N. Total communication bandwidth is unchanged versus vanilla
+TP (one all-reduce per layer becomes one all-gather plus one reduce-scatter, same
+bytes on the wire), but activations in the SP regions are N× smaller.
 
 ---
 
@@ -230,15 +240,32 @@ is often the first technique deployed before reaching for context parallelism.
 
 ## Gradient Semantics Under TP
 
-The backward pass through `ColumnParallelLinear` and `RowParallelLinear` mirrors the
-forward. The parameter gradients are local: each rank computes the gradient with
-respect to its own weight slice, and no all-reduce is needed for the weight gradients.
-(The gradient is: `dL/dW_i = X_iᵀ @ dL/dY_i`, which is a local operation.)
+The parameter gradients are local: each rank computes the gradient for its own
+weight slice, and no communication is needed. `dL/dW_i = Xᵀ @ dL/dY_i` — a
+local matmul using the local input `X` and local output gradient `dL/dY_i`.
 
-The all-reduce in the forward pass of `RowParallelLinear` introduces an all-reduce
-in the backward pass of `ColumnParallelLinear`. This is handled automatically by
-PyTorch's autograd: the all-reduce operation has a registered backward that
-performs the corresponding gradient computation.
+The input gradient `dL/dX` is different — it requires communication. Here's why:
+
+In the forward pass of `RowParallelLinear`, every rank's partial result
+`Z_i = X_i @ W_i` is summed via all-reduce to produce the full output
+`Z = Z_0 + Z_1 + ... + Z_{N-1}`. In the backward pass, to compute how the loss
+changes with respect to the input `X`, we need `dL/dX_i = dL/dZ @ W_iᵀ`. But
+`dL/dZ` is the gradient that arrives at the output of `RowParallel` — it's a
+replicated tensor (same on all ranks, because the forward all-reduce replicated
+the output). So `dL/dX_i = dL/dZ @ W_iᵀ` is a local operation, and the
+gradient flows back into `ColumnParallelLinear` as a sharded input gradient.
+
+`ColumnParallelLinear`'s backward then needs to compute `dL/dX` — the full-input
+gradient that flows to the previous layer. Since each rank holds a slice of the
+output `Y_i`, it computes a partial `dL/dX_partial = dL/dY_i @ W_iᵀ`. Summing
+these partials across ranks gives the full input gradient — and that sum is the
+all-reduce that appears in `ColumnParallelLinear`'s backward. PyTorch's autograd
+inserts this automatically because the forward pass used a distribution of work
+across ranks: the backward must undo that distribution.
+
+**In short**: weight gradients in TP are local (no communication). Input gradients
+require an all-reduce at each `ColumnParallelLinear` boundary, handled transparently
+by autograd.
 
 ---
 

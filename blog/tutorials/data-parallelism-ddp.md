@@ -20,6 +20,26 @@ overlap between computation and communication.
 
 ---
 
+## Distributed Primitives: Rank, World Size, Process Groups
+
+Before diving into DDP, three terms appear throughout this article and the next two:
+
+- **Rank**: the integer index (0, 1, 2, …) that identifies this process in a
+  distributed job. Each GPU runs one process; rank 0 is typically the "main" process
+  for logging and checkpointing.
+- **World size**: the total number of processes. In a DDP setup with 4 GPUs,
+  `world_size = 4` and ranks are 0–3.
+- **Process group**: a named subset of ranks that communicate with each other.
+  All-reduce, all-gather, and reduce-scatter operations run within a process group.
+  A single training job can have multiple groups — for example, a separate DP group
+  and a TP group — each with its own communication scope.
+
+With these in hand, a DDP setup on 4 GPUs means: 4 ranks, world size 4, one DP
+process group containing all 4 ranks. Each rank runs the same model on a different
+batch; the DP process group is where gradient reduction happens.
+
+---
+
 ## The Gradient All-Reduce
 
 In DDP, every GPU holds an identical copy of the model parameters. Each GPU receives
@@ -52,7 +72,7 @@ entire backward pass completes. The GPU is idle while the network is busy.
 ---
 
 <div class="article-figure">
-  <img src="assets/ddp-gradient-reduction.svg" alt="DDP gradient reduction: naive vs. bucketed">
+  <img src="../assets/ddp-gradient-reduction.svg" alt="DDP gradient reduction: naive vs. bucketed">
 </div>
 
 ---
@@ -76,6 +96,11 @@ The `BucketDataParallelPlugin` implements this with a flat-buffer bucketing sche
 4. While the async all-reduce runs on the network, backward continues on the
    remaining earlier layers.
 5. **At `POST_BACKWARD`**, all bucket handles are waited on before the optimizer step.
+
+The async all-reduce runs on a separate CUDA stream from the backward pass,
+so the two operations execute in parallel on the GPU. NCCL manages its own stream
+internally; the `handle.wait()` at step 5 inserts a stream dependency that blocks
+the optimizer step until all communication has completed.
 
 ```python
 # From ddp.py: the hook that fires when a bucket is fully ready
@@ -109,9 +134,13 @@ efficient. When multiple parameters share a single contiguous buffer, they can b
 all-reduced in a **single NCCL call** rather than one call per parameter.
 
 NCCL (NVIDIA's Collective Communications Library) has a fixed latency cost per
-operation. A model with 10,000 parameters would require 10,000 separate all-reduce
-calls if each parameter were reduced independently. Grouping them into 25 MB buckets
-reduces this to roughly:
+operation. Without bucketing, each parameter *tensor* (weight matrix, bias vector,
+etc.) would require its own all-reduce call. A GPT-style model has on the order of
+thousands of parameter tensors — one all-reduce per tensor means thousands of small
+NCCL calls, each incurring latency overhead.
+
+Bucketing reduces this to a handful of large calls. For a 7B model at fp32
+(4 bytes/param), grouping into 25 MB buckets gives:
 
 ```
 n_calls = total_param_bytes / bucket_size
@@ -119,8 +148,9 @@ n_calls = total_param_bytes / bucket_size
          ≈ 1,066 calls
 ```
 
-For a 7B model at 4 bytes/param, that's ~1,000 NCCL operations instead of 7 billion.
-The latency savings compound: less overhead per operation, better pipelining.
+Roughly 1,000 large NCCL operations instead of thousands of tiny ones. The latency
+savings compound: less per-operation overhead, better NIC pipelining, and the
+async path can hide most of the cost entirely.
 
 The `finalize()` method sets up these views when the bucket is first created:
 
@@ -150,7 +180,9 @@ With gradient accumulation (multiple micro-steps per optimizer step), the all-re
 should only happen on the last micro-step. All-reducing on every micro-step wastes
 network bandwidth and would double-count the normalization.
 
-The `BucketDataParallelPlugin` handles this with the `is_step_boundary` flag:
+The `BucketDataParallelPlugin` handles this with the `is_step_boundary` flag —
+a boolean in the runtime's step context that is `True` only on the last micro-step
+of each accumulation window:
 
 ```python
 def on_phase(self, phase: RuntimePhase) -> None:
@@ -165,14 +197,28 @@ def on_phase(self, phase: RuntimePhase) -> None:
             )
 ```
 
-On micro-steps 1 through N-1, `should_sync=False`. The `bucket.reset()` sets
-`bucket.pending = 0` (not `len(self.params)`), so the hook never fires and no
-all-reduce is launched. Gradients accumulate in the flat buffer unmolested.
+The `pending` counter is per-bucket and tracks how many parameters in that bucket
+still need to complete their backward pass before the bucket is ready to all-reduce.
 
-On micro-step N, `should_sync=True`. The `bucket.reset()` sets `pending =
-len(self.params)`, arming the hook. As each parameter completes its backward pass
-on the last micro-step, the bucket's pending count decrements, and when it reaches
-zero, the all-reduce launches.
+```
+bucket.reset(grad_accum_end=False):  # micro-step 1..N-1
+    bucket.pending = 0  # hook checks: if pending == 0, launch reduce
+                        # → hook fires but does nothing (already 0)
+
+bucket.reset(grad_accum_end=True):   # last micro-step
+    bucket.pending = len(bucket.params)  # arm the hook
+    # as each param's backward completes:
+    #   hook fires → pending -= 1 → if pending == 0: launch all_reduce
+```
+
+On micro-steps 1 through N-1, `should_sync=False`. `bucket.reset()` sets
+`pending = 0` — the hook fires for each parameter but finds the counter already
+at zero, so it does nothing. Gradients accumulate in the flat buffer silently.
+
+On micro-step N, `should_sync=True`. `pending` is armed to `len(bucket.params)`.
+As each parameter completes its backward pass, the hook decrements `pending`. When
+the last parameter completes and `pending` reaches zero, the async all-reduce
+launches.
 
 ---
 
@@ -208,6 +254,18 @@ the role annotations are already present.
 
 ---
 
+## Numerical Equivalence
+
+Bucketed DDP with async all-reduce produces results that are mathematically
+equivalent to synchronous DDP (when using `ReduceOp.AVG`). The only difference
+is when the operation executes, not what it computes. In practice, floating-point
+associativity means the exact gradient values may differ by ±1 ULP (unit in the
+last place) due to different summation ordering in the ring-allreduce algorithm,
+but this is not numerically meaningful — gradient descent is robust to this level
+of noise.
+
+---
+
 ## Gloo vs. NCCL
 
 The all-reduce operation behaves differently depending on whether the process group
@@ -233,16 +291,19 @@ all DDP combinations are validated before running on real hardware.
 ## How DDP Interacts With ZeRO
 
 When ZeRO-3 is in the configuration, DDP is not loaded. ZeRO-3 handles gradient
-reduction itself — using a reduce-scatter instead of an all-reduce, which shards
-the averaged gradient across DP ranks rather than replicating it. This is one of
-the five interaction surfaces: two plugins that both want to own the gradient
-reduction step.
+reduction itself using a different operation: **reduce-scatter** instead of
+**all-reduce**.
 
-The plugin system resolves this through `runs_after` ordering: the ZeRO-3 plugin
-declares `runs_after={PluginId.DP}`. In practice, ZeRO-3 replaces DDP entirely
-in a valid configuration — you pick one or the other. Trying to use both would
-conflict on the `PluginId.DP` slot, which is enforced by the plugin ID uniqueness
-constraint.
+The difference matters for memory. An all-reduce gives every rank the full averaged
+gradient — every rank stores `N × param_bytes` worth of gradient data. A
+reduce-scatter is like an all-reduce but each rank only receives its assigned
+`1/N` slice of the result. ZeRO-3 uses this to shard the gradients across DP ranks,
+so no rank ever stores the full gradient tensor. Tutorial 5 covers ZeRO in detail.
+
+The plugin system enforces the DDP/ZeRO mutual exclusion: both compete for the
+same `PluginId.DP` slot, and the runtime prevents two plugins from registering the
+same slot ID. You pick one or the other; the configuration is invalid if both are
+present.
 
 ---
 

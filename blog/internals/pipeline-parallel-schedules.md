@@ -31,7 +31,7 @@ peak, and the complexity of the synchronization between stages.
 ---
 
 <div class="article-figure">
-  <img src="assets/pp-schedule-diagram.svg" alt="Pipeline parallel schedules: AFAB vs 1F1B">
+  <img src="../assets/pp-schedule-diagram.svg" alt="Pipeline parallel schedules: AFAB vs 1F1B">
 </div>
 
 ---

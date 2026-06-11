@@ -20,6 +20,20 @@ breaks down, and shows how the structure needs to change to accommodate scale.
 
 ---
 
+**This series**: five articles building a pretraining stack from first principles.
+
+| Article | Topic |
+|---|---|
+| **Part 1** (this article) | The training loop: gradient accumulation, mixed precision, checkpointing |
+| **Part 2** | Token shards, memory-mapped access, DP-aware data streaming |
+| **Part 3** | Data parallelism: gradient all-reduce and bucketed async DDP |
+| **Part 4** | Tensor and sequence parallelism: sharding weight matrices across GPUs |
+| **Part 5** | ZeRO optimizer sharding: cutting memory by sharding optimizer state and weights |
+
+**Prerequisites**: Python, PyTorch basics (`nn.Module`, `torch.optim`, tensor operations), and a working understanding of how gradient descent trains a neural network. No prior distributed training knowledge is assumed — Parts 3–5 introduce distributed concepts as needed.
+
+---
+
 ## The Minimal Training Loop
 
 Start with the smallest correct version:
@@ -30,7 +44,7 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
 
 for step in range(max_steps):
     batch = get_next_batch()  # {"input_ids": Tensor[B, T], "labels": Tensor[B, T]}
-    loss = model(batch)
+    loss = model(batch["input_ids"], batch["labels"])  # model computes cross-entropy and returns scalar loss
     loss.backward()
     optimizer.step()
     optimizer.zero_grad()
@@ -97,9 +111,13 @@ loss.backward()
 
 The autocast context manager handles the dtype conversions automatically. Inside
 the context, operations that benefit from lower precision (linear layers,
-attention) run in `bfloat16`. Operations that need full precision (layer norm,
-loss computation) stay in `float32`. PyTorch maintains an internal allowlist of
-which operations cast.
+attention matmuls) run in `bfloat16`. Operations that need full precision — layer
+norm, softmax, loss computation, and reduction operations — stay in `float32`.
+PyTorch maintains an internal allowlist that controls which operations cast; you
+can check it in the [PyTorch autocast docs](https://pytorch.org/docs/stable/amp.html#cuda-ops-that-can-autocast-to-float16).
+Casting `float32 → bfloat16` loses about 8 bits of mantissa precision, which is
+acceptable for matrix multiplications (the dominant cost) but not for numerically
+sensitive operations like normalization.
 
 **`bfloat16` vs `float16`**. For LLM training, `bfloat16` is strongly preferred
 over `float16`:
@@ -112,10 +130,11 @@ over `float16`:
   factor before backward to avoid gradient underflow, then divides out before the
   optimizer step; `bfloat16` generally does not
 
-If you are training on older hardware that doesn't support `bfloat16` (pre-A100),
-the `float16` path with a gradient scaler looks like:
+Use `bfloat16` on A100/H100. On older hardware (V100, earlier) that doesn't support
+`bfloat16`, the `float16` path requires a gradient scaler:
 
 ```python
+# float16 path — use only on hardware that doesn't support bfloat16
 scaler = torch.amp.GradScaler()
 with torch.autocast(device_type="cuda", dtype=torch.float16):
     loss = model(batch) / grad_accum_steps
@@ -127,8 +146,9 @@ if micro_step == grad_accum_steps - 1:
     scaler.update()
 ```
 
-Note that gradient clipping must run after `unscale_` — the scaler has inflated
-the gradient norms, and clipping against the inflated norms would clip too early.
+The `unscale_` call before gradient clipping is required — the scaler inflates
+gradient norms to prevent underflow, and clipping against inflated norms would
+cut too early.
 
 ---
 
@@ -194,11 +214,23 @@ A correct resume needs more than the model weights. It needs:
 - **Data cursor**: current shard and token offset
 - **RNG state**: CPU and CUDA random states, to reproduce stochastic operations
 
-Model-only checkpoints are a common mistake. A run resumed from model weights
-alone will start with a fresh optimizer — fresh first and second moments, fresh
-step count — and the first several thousand steps will look like a warm-up even
-if the model is well-trained. The effective training will be slower than
-continuing from the correct optimizer state.
+Model-only checkpoints are a common mistake. The observable effects:
+
+- **Missing optimizer state**: Adam's moment estimates (`m`, `v`) warm up over
+  thousands of steps and encode information about per-parameter gradient variance.
+  Discarding them means the first several thousand steps after resume look like a
+  warm-up restart — high loss, slow convergence — even though the model weights
+  are well-trained. The loss will recover, but you've wasted compute.
+- **Missing scheduler state**: the learning rate schedule resumes from its saved
+  position, not from step 0. But without optimizer state, the effective update size
+  is wrong — the Adam moments are at zero, effectively making early post-resume
+  steps behave as if the LR were much higher. The loss curve may look stable while
+  the effective gradient updates are noisier than they should be.
+
+These effects are subtle enough that a model-only checkpoint often "works" in the
+sense that loss continues decreasing. But the run diverges from what an
+uninterrupted run would have produced, and the model quality at any given step
+count is lower.
 
 Data cursor checkpointing is subtler. A run that resumes without restoring the
 data cursor will re-read tokens the model has already seen, or read from a
@@ -212,7 +244,7 @@ A minimal checkpoint save:
 ```python
 def save_checkpoint(step, model, optimizer, scheduler, dataloader, path):
     torch.save({
-        "step": step,
+        "step": step,  # the step that just completed; resume will start from step+1
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict(),
@@ -233,7 +265,7 @@ def load_checkpoint(path, model, optimizer, scheduler, dataloader):
     dataloader.load_state_dict(checkpoint["dataloader"])
     torch.set_rng_state(checkpoint["rng_cpu"])
     torch.cuda.set_rng_state(checkpoint["rng_cuda"])
-    return checkpoint["step"]
+    return checkpoint["step"] + 1  # resume from the step AFTER the checkpoint
 ```
 
 ---
@@ -263,7 +295,7 @@ window averaging to smooth the values between log points.
 ---
 
 <div class="article-figure">
-  <img src="assets/training-loop-flow.svg" alt="Training loop flow: gradient accumulation, mixed precision, and checkpointing">
+  <img src="../assets/training-loop-flow.svg" alt="Training loop flow: gradient accumulation, mixed precision, and checkpointing">
 </div>
 
 ---
@@ -299,7 +331,9 @@ for step in range(start_step, max_steps):
 
     # log
     if step % log_every == 0:
-        tokens_per_sec = compute_throughput(step_time, batch_tokens)
+        # batch_tokens = grad_accum_steps * micro_batch_size * seq_len
+        # step_time: measure with time.perf_counter() around the accumulation loop
+        tokens_per_sec = batch_tokens / step_time
         print(f"step={step}  loss={loss.item():.4f}  lr={scheduler.get_last_lr()[0]:.2e}"
               f"  grad_norm={grad_norm:.3f}  tok/s={tokens_per_sec:.0f}")
 

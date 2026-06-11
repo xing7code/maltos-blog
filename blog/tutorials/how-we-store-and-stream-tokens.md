@@ -37,16 +37,17 @@ Pretraining has different requirements:
 - **No meaningful epoch boundary**: Many pretraining runs are shorter than one
   full pass through the data. There is no natural point to shuffle and restart.
 - **Deterministic partitioning**: In data-parallel training, each GPU must see
-  different windows at each step. The partitioning needs to be deterministic:
-  the same configuration with the same step count should produce the same windows,
-  both within a run and after a restart from a checkpoint.
-
----
+  different windows at each step. A random sampler is not sufficient — the
+  partitioning must be deterministic, so that the same configuration at the same
+  step count produces the same windows, both within a run and after resuming from
+  a checkpoint. Without this, resuming a multi-GPU run would assign each GPU
+  different data than it would have seen in an uninterrupted run, breaking
+  reproducibility.
 
 ---
 
 <div class="article-figure">
-  <img src="assets/token-shard-layout.svg" alt="Token shard layout and DP-aware windowing">
+  <img src="../assets/token-shard-layout.svg" alt="Token shard layout and DP-aware windowing">
 </div>
 
 ---
@@ -127,8 +128,13 @@ boundary.
 
 **Circular wrapping**. When the last shard is exhausted, `shard_idx` wraps back
 to 0. For most pretraining runs this never happens (the run ends before the
-data does). For longer runs, wrapping is correct: the model trains on the data
-multiple times in the same sequential order.
+data does). For runs that do wrap, seeing the same tokens a second time is
+intentional — analogous to training for more than one epoch in supervised learning.
+The practical concern is not correctness but efficiency: if the dataset is
+significantly smaller than the compute budget, the model will memorize it rather
+than generalize, which degrades downstream performance. Large-scale pretraining
+runs (GPT-3, LLaMA) are typically data-limited, not compute-limited — they see
+each token fewer than 2× on average.
 
 ---
 
@@ -176,7 +182,13 @@ by the full DP stride after each sample:
 ```python
 class PretrainingDataLoader:
     def __init__(self, dataset, seq_len, micro_batch_size, dp_rank, dp_world_size):
-        self.token_offset = dp_rank * (seq_len + 1)   # rank-specific start
+        self.dataset = dataset
+        self.seq_len = seq_len
+        self.micro_batch_size = micro_batch_size
+        self.dp_rank = dp_rank
+        self.dp_world_size = dp_world_size
+        self.shard_idx = 0                             # start at first shard
+        self.token_offset = dp_rank * (seq_len + 1)   # rank-specific start within stream
         self.dp_stride = dp_world_size * (seq_len + 1)
 
     def next_batch(self):
@@ -336,6 +348,24 @@ Token IDs fit in `uint16` for vocabularies up to 65,535, but `uint32` handles
 all current LLaMA/GPT tokenizers (vocabularies of 32k–128k) without overflow.
 The storage cost is 4 bytes per token — 400 MB for 100M tokens — which is
 acceptable given the access pattern.
+
+**How large should shards be?** 100M tokens (~400 MB) is a practical default.
+Too small (< 10M tokens) means many file opens and memmap registrations.
+Too large (> 1B tokens) starts to strain the OS page cache on machines with
+limited RAM. On a machine with 256 GB of RAM, a 400 MB working set per shard
+allows hundreds of shards to remain warm simultaneously.
+
+**What about the last shard?** Most datasets don't divide evenly into equal-sized
+shards. The last shard is usually shorter than the others. The `read()` loop
+handles this correctly — it only reads `take = min(remaining, shard.size - offset)`
+tokens at a time. If a training window crosses the end of the last shard, the
+code wraps to shard 0 for the remainder. No padding is needed.
+
+**Documents vs. sequences**: standard pretraining tokenization concatenates all
+documents end-to-end with a special EOS token between them (e.g., `<|endoftext|>`
+in GPT-2/LLaMA). This is intentional — the model must learn to predict the start
+of a new document given the end of the previous one. Individual document boundaries
+do not align with `seq_len` windows, and that's correct behavior.
 
 ---
 

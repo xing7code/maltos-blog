@@ -32,7 +32,7 @@ ignore them, and the design decisions that keep strategies composable.
 ---
 
 <div class="article-figure">
-  <img src="assets/interaction-surfaces.svg" alt="5 surfaces where parallelism strategies must coordinate">
+  <img src="../assets/interaction-surfaces.svg" alt="5 surfaces where parallelism strategies must coordinate">
 </div>
 
 ---

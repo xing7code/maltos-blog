@@ -42,7 +42,7 @@
         <article class="post-row">
           <div class="meta">May 26, 2026</div>
           <div>
-            <h2><a href="maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h2>
+            <h2><a href="internals/maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h2>
             <p>
               A full-system overview of RuntimeCore, plugin ordering, all ten
               parallelism strategies, sharded checkpointing, data resume, and
@@ -57,7 +57,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="composable-parallelism.html">Why Composable Parallelism Is Hard</a></h2>
+            <h2><a href="internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h2>
             <p>
               The five surfaces where parallelism strategies must coordinate —
               model transformation ordering, gradient synchronization callbacks,
@@ -72,7 +72,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="optimizer-lifecycle-under-sharding.html">The Optimizer Lifecycle Under Sharding</a></h2>
+            <h2><a href="internals/optimizer-lifecycle-under-sharding.html">The Optimizer Lifecycle Under Sharding</a></h2>
             <p>
               Why creating an optimizer before model transformation produces
               plausible-but-wrong training: the deferred factory pattern, single-owner
@@ -86,7 +86,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="checkpoint-semantics-under-sharding.html">Checkpoint Semantics Under Sharding</a></h2>
+            <h2><a href="internals/checkpoint-semantics-under-sharding.html">Checkpoint Semantics Under Sharding</a></h2>
             <p>
               What state is actually required for an exact resume, how the manifest
               records per-rank plugin annotations for TP and ZeRO-3 shards, why the
@@ -100,7 +100,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="pipeline-parallel-schedules.html">Pipeline Parallel Schedules</a></h2>
+            <h2><a href="internals/pipeline-parallel-schedules.html">Pipeline Parallel Schedules</a></h2>
             <p>
               AFAB vs. 1F1B schedules: how they're constructed per-stage, the
               warmup/steady-state/drain phases, why ZeRO-3 needs per-microbatch
@@ -116,7 +116,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></h2>
+            <h2><a href="tutorials/pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></h2>
             <p>
               The minimal training loop and what it leaves out: gradient
               accumulation, mixed precision, data cursors, checkpointing, and
@@ -129,7 +129,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></h2>
+            <h2><a href="tutorials/how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></h2>
             <p>
               Token shards, memory-mapped binary files, DP-aware windowing,
               the +1 convention, and how the data cursor is preserved for
@@ -142,7 +142,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></h2>
+            <h2><a href="tutorials/data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></h2>
             <p>
               Synchronous all-reduce, bucketed DDP with async communication-compute
               overlap, flat gradient buffers, gradient accumulation under DDP, and
@@ -155,7 +155,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="tensor-and-sequence-parallelism.html">Tensor and Sequence Parallelism</a></h2>
+            <h2><a href="tutorials/tensor-and-sequence-parallelism.html">Tensor and Sequence Parallelism</a></h2>
             <p>
               ColumnParallelLinear and RowParallelLinear, why attention uses the
               same column/row pattern, sequence parallelism's sequence-dimension
@@ -168,7 +168,7 @@
         <article class="post-row">
           <div class="meta">Jun 11, 2026</div>
           <div>
-            <h2><a href="zero-optimizer-sharding.html">ZeRO Optimizer Sharding</a></h2>
+            <h2><a href="tutorials/zero-optimizer-sharding.html">ZeRO Optimizer Sharding</a></h2>
             <p>
               ZeRO stages 1, 2, and 3: what each shards, the memory math, module-level
               wrapping, prefetch-based all-gather overlap, reduce-scatter for gradient
