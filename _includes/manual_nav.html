@@ -1,0 +1,55 @@
+{% assign is_learn = page.url contains '/blog/learn/' %}
+{% assign is_internals = page.url contains '/blog/internals/' %}
+{% assign is_tutorials = page.url contains '/blog/tutorials/' %}
+
+<nav class="manual-nav" aria-label="Manual contents">
+  {% if is_learn %}
+    <a class="manual-nav-home" href="index.html">MALTOS Guide</a>
+    <details open>
+      <summary>User Guide</summary>
+      <ul>
+        <li><a href="quickstart.html">Quickstart</a></li>
+        <li><a href="bring-your-own-model.html">Bring Your Own Model</a></li>
+        <li><a href="configuring-parallelism.html">Configuring Parallelism</a></li>
+        <li><a href="data-and-token-shards.html">Data and Token Shards</a></li>
+        <li><a href="training-checkpoints-and-resume.html">Training, Checkpoints, and Resume</a></li>
+        <li><a href="errors-and-troubleshooting.html">Errors and Troubleshooting</a></li>
+      </ul>
+    </details>
+    <details open>
+      <summary>Internals</summary>
+      <ul>
+        <li><a href="repo-map.html">Repo Map</a></li>
+        <li><a href="runtime-core-walkthrough.html">RuntimeCore Walkthrough</a></li>
+        <li><a href="writing-a-plugin.html">Writing a Plugin</a></li>
+        <li><a href="mesh-and-process-groups.html">Mesh and Process Groups</a></li>
+        <li><a href="test-architecture.html">The Test Architecture</a></li>
+        <li><a href="adding-tests-and-profiling.html">Adding Tests and Profiling</a></li>
+      </ul>
+    </details>
+  {% elsif is_tutorials %}
+    <a class="manual-nav-home" href="index.html">Pretraining Concepts</a>
+    <details open>
+      <summary>Series</summary>
+      <ul>
+        <li><a href="pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></li>
+        <li><a href="how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></li>
+        <li><a href="data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></li>
+        <li><a href="zero-optimizer-sharding.html">ZeRO Optimizer Sharding</a></li>
+        <li><a href="tensor-and-sequence-parallelism.html">Tensor and Sequence Parallelism</a></li>
+        <li><a href="pipeline-parallelism.html">Pipeline Parallelism</a></li>
+        <li><a href="context-parallelism.html">Context Parallelism</a></li>
+        <li><a href="moe-and-expert-parallelism.html">Mixture of Experts and Expert Parallelism</a></li>
+      </ul>
+    </details>
+  {% elsif is_internals %}
+    <a class="manual-nav-home" href="index.html">Deep Dive</a>
+    <details open>
+      <summary>Articles</summary>
+      <ul>
+        <li><a href="maltos-a-modular-runtime-for-llm-training.html">Runtime Overview</a></li>
+        <li><a href="composable-parallelism.html">Composable Parallelism</a></li>
+      </ul>
+    </details>
+  {% endif %}
+</nav>

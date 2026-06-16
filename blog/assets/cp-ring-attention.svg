@@ -1,0 +1,93 @@
+<svg viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="320" fill="#fff"/>
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#5f625f"/>
+    </marker>
+    <marker id="arr-t" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="380" y="18" text-anchor="middle" font-size="13" font-weight="700" fill="#141414">Ring Attention: KV rotates around the ring each step</text>
+
+  <!-- ── LEFT: Ring topology diagram ── -->
+  <!-- 4 ranks in a ring, center at (200, 170) -->
+  <!-- Rank 0: top (200, 80) -->
+  <!-- Rank 1: right (290, 170) -->
+  <!-- Rank 2: bottom (200, 260) -->
+  <!-- Rank 3: left (110, 170) -->
+
+  <!-- ring circle (faint) -->
+  <circle cx="200" cy="170" r="78" fill="none" stroke="#eceee7" stroke-width="1.5" stroke-dasharray="5,3"/>
+
+  <!-- rank nodes -->
+  <rect x="156" y="56" width="88" height="48" rx="6" fill="#0f766e"/>
+  <text x="200" y="75" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 0</text>
+  <text x="200" y="89" text-anchor="middle" font-size="10" fill="#aee0db">Q₀, K₀, V₀</text>
+  <text x="200" y="100" text-anchor="middle" font-size="9" fill="#aee0db">pos [0 .. T/4)</text>
+
+  <rect x="276" y="146" width="88" height="48" rx="6" fill="#0b4f4a"/>
+  <text x="320" y="165" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 1</text>
+  <text x="320" y="179" text-anchor="middle" font-size="10" fill="#8ecec7">Q₁, K₁, V₁</text>
+  <text x="320" y="190" text-anchor="middle" font-size="9" fill="#8ecec7">pos [T/4 .. T/2)</text>
+
+  <rect x="156" y="236" width="88" height="48" rx="6" fill="#0f766e" opacity="0.8"/>
+  <text x="200" y="255" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 2</text>
+  <text x="200" y="269" text-anchor="middle" font-size="10" fill="#aee0db">Q₂, K₂, V₂</text>
+  <text x="200" y="280" text-anchor="middle" font-size="9" fill="#aee0db">pos [T/2 .. 3T/4)</text>
+
+  <rect x="36" y="146" width="88" height="48" rx="6" fill="#0b4f4a" opacity="0.8"/>
+  <text x="80" y="165" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 3</text>
+  <text x="80" y="179" text-anchor="middle" font-size="10" fill="#8ecec7">Q₃, K₃, V₃</text>
+  <text x="80" y="190" text-anchor="middle" font-size="9" fill="#8ecec7">pos [3T/4 .. T)</text>
+
+  <!-- ring arrows (KV passing clockwise: 0→1→2→3→0) -->
+  <path d="M 244,80 C 270,80 280,130 280,148" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
+  <text x="278" y="115" font-size="9" fill="#0f766e">KV</text>
+
+  <path d="M 320,194 C 320,230 280,250 244,252" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
+  <text x="328" y="230" font-size="9" fill="#0f766e">KV</text>
+
+  <path d="M 156,262 C 130,262 120,225 120,196" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
+  <text x="108" y="240" font-size="9" fill="#0f766e">KV</text>
+
+  <path d="M 80,146 C 80,110 130,84 156,80" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
+  <text x="84" y="110" font-size="9" fill="#0f766e">KV</text>
+
+  <!-- center label -->
+  <text x="200" y="165" text-anchor="middle" font-size="10" fill="#5f625f">N steps</text>
+  <text x="200" y="178" text-anchor="middle" font-size="10" fill="#5f625f">to complete</text>
+
+  <!-- ── RIGHT: online softmax accumulation ── -->
+  <rect x="420" y="30" width="324" height="270" rx="6" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="582" y="50" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">Online softmax accumulation</text>
+  <text x="582" y="63" text-anchor="middle" font-size="10" fill="#5f625f">each rank accumulates attention result across N ring steps</text>
+
+  <!-- Step boxes -->
+  <rect x="436" y="72" width="292" height="34" rx="4" fill="#eceee7"/>
+  <text x="582" y="86" text-anchor="middle" font-size="10" font-weight="600" fill="#141414">step 0: compute attention(Q, local K/V)</text>
+  <text x="582" y="99" text-anchor="middle" font-size="10" fill="#5f625f">init running_max, running_lse, running_acc</text>
+
+  <text x="582" y="120" text-anchor="middle" font-size="10" fill="#5f625f">↓ ring shift: receive KV from previous rank</text>
+
+  <rect x="436" y="128" width="292" height="34" rx="4" fill="#eceee7"/>
+  <text x="582" y="142" text-anchor="middle" font-size="10" font-weight="600" fill="#141414">step 1: compute attention(Q, received K/V)</text>
+  <text x="582" y="155" text-anchor="middle" font-size="10" fill="#5f625f">rescale acc by exp(old_max − new_max), add new block</text>
+
+  <text x="582" y="176" text-anchor="middle" font-size="10" fill="#5f625f">↓ ring shift again …</text>
+
+  <rect x="436" y="184" width="292" height="20" rx="4" fill="#eceee7"/>
+  <text x="582" y="198" text-anchor="middle" font-size="10" fill="#5f625f">step 2 … step N−1</text>
+
+  <!-- final output -->
+  <rect x="436" y="216" width="292" height="36" rx="4" fill="#0f766e"/>
+  <text x="582" y="232" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">output = running_acc / running_lse</text>
+  <text x="582" y="246" text-anchor="middle" font-size="10" fill="#aee0db">exact attention — no full T×T score matrix ever stored</text>
+
+  <!-- memory note -->
+  <rect x="436" y="264" width="292" height="26" rx="4" fill="#fff" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="582" y="276" text-anchor="middle" font-size="10" fill="#141414">K, V memory: O(T/N) per rank  (vs O(T) for all-gather KV)</text>
+  <text x="582" y="286" text-anchor="middle" font-size="9" fill="#5f625f">tradeoff: N sequential P2P exchanges vs one all-gather</text>
+</svg>

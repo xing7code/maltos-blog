@@ -2,7 +2,7 @@
 layout: post
 title: "Data Parallelism and Gradient Reduction"
 description: DDP is the first parallelism strategy every pretraining setup needs. This article covers synchronous and asynchronous gradient all-reduce, the bucketed implementation that overlaps communication with backward, and why the naive approach leaves performance on the table.
-category: Tutorial · Part 3 of 5
+category: Pretraining Concepts · Part 3 of 8
 date: 2026-06-11
 read_time: 14 min read
 ---
@@ -31,8 +31,10 @@ Before diving into DDP, three terms appear throughout this article and the next 
   `world_size = 4` and ranks are 0–3.
 - **Process group**: a named subset of ranks that communicate with each other.
   All-reduce, all-gather, and reduce-scatter operations run within a process group.
-  A single training job can have multiple groups — for example, a separate DP group
-  and a TP group — each with its own communication scope.
+  A process group also carries a backend (NCCL for GPU-to-GPU via NVLink/InfiniBand,
+  Gloo for CPU testing) that controls how the communication executes. A single
+  training job can have multiple groups — for example, a separate DP group and a TP
+  group — each with its own set of ranks, backend, and communication scope.
 
 With these in hand, a DDP setup on 4 GPUs means: 4 ranks, world size 4, one DP
 process group containing all 4 ranks. Each rank runs the same model on a different
@@ -111,12 +113,19 @@ def make_hook(self):
     def hook(param):
         self.pending -= 1
         if self.pending == 0:
-            self.handle = dist.all_reduce(
-                self.flat_buffer,
-                op=dist.ReduceOp.AVG,
-                group=self.group,
-                async_op=True,  # key: non-blocking
-            )
+            if is_gloo:
+                # Gloo doesn't support ReduceOp.AVG — sum and divide manually.
+                # Gloo also doesn't support async_op=True, so this blocks.
+                dist.all_reduce(self.flat_buffer, op=dist.ReduceOp.SUM, group=self.group)
+                self.flat_buffer.div_(world_size)
+                self.handle = None  # no async handle; already complete
+            else:
+                self.handle = dist.all_reduce(
+                    self.flat_buffer,
+                    op=dist.ReduceOp.AVG,
+                    group=self.group,
+                    async_op=True,  # key: non-blocking on NCCL
+                )
     return hook
 ```
 
@@ -139,16 +148,16 @@ etc.) would require its own all-reduce call. A GPT-style model has on the order 
 thousands of parameter tensors — one all-reduce per tensor means thousands of small
 NCCL calls, each incurring latency overhead.
 
-Bucketing reduces this to a handful of large calls. For a 7B model at fp32
-(4 bytes/param), grouping into 25 MB buckets gives:
+Bucketing reduces this to a handful of large calls. For a 7B model with bf16
+gradients (2 bytes/param), grouping into 25 MB buckets gives:
 
 ```
-n_calls = total_param_bytes / bucket_size
-         = (7B params × 4 bytes/param) / (25 × 1024 × 1024 bytes)
-         ≈ 1,066 calls
+n_calls = total_gradient_bytes / bucket_size
+         = (7B params × 2 bytes/param) / (25 × 1024 × 1024 bytes)
+         ≈ 533 calls
 ```
 
-Roughly 1,000 large NCCL operations instead of thousands of tiny ones. The latency
+Roughly 500 large NCCL operations instead of thousands of tiny ones. The latency
 savings compound: less per-operation overhead, better NIC pipelining, and the
 async path can hide most of the cost entirely.
 
@@ -202,8 +211,9 @@ still need to complete their backward pass before the bucket is ready to all-red
 
 ```
 bucket.reset(grad_accum_end=False):  # micro-step 1..N-1
-    bucket.pending = 0  # hook checks: if pending == 0, launch reduce
-                        # → hook fires but does nothing (already 0)
+    bucket.pending = 0
+    # hook fires per-param: pending -= 1 → pending = -1 → if -1 == 0: False
+    # → all-reduce is NOT launched; gradients accumulate silently
 
 bucket.reset(grad_accum_end=True):   # last micro-step
     bucket.pending = len(bucket.params)  # arm the hook
@@ -212,8 +222,10 @@ bucket.reset(grad_accum_end=True):   # last micro-step
 ```
 
 On micro-steps 1 through N-1, `should_sync=False`. `bucket.reset()` sets
-`pending = 0` — the hook fires for each parameter but finds the counter already
-at zero, so it does nothing. Gradients accumulate in the flat buffer silently.
+`pending = 0`. The hook fires for each parameter, decrements `pending` to -1,
+then checks `if -1 == 0` — false, so the all-reduce is not launched. On the
+next micro-step, `reset()` overwrites `pending = 0` again. Gradients accumulate
+in the flat buffer silently.
 
 On micro-step N, `should_sync=True`. `pending` is armed to `len(bucket.params)`.
 As each parameter completes its backward pass, the hook decrements `pending`. When
@@ -259,10 +271,11 @@ the role annotations are already present.
 Bucketed DDP with async all-reduce produces results that are mathematically
 equivalent to synchronous DDP (when using `ReduceOp.AVG`). The only difference
 is when the operation executes, not what it computes. In practice, floating-point
-associativity means the exact gradient values may differ by ±1 ULP (unit in the
-last place) due to different summation ordering in the ring-allreduce algorithm,
-but this is not numerically meaningful — gradient descent is robust to this level
-of noise.
+addition is not associative, so different summation orderings in the ring-allreduce
+algorithm produce gradient values that differ in the last few bits. This is not
+numerically meaningful — gradient descent is robust to this level of noise — but
+it does mean bit-exact reproducibility across different bucket configurations is
+not guaranteed.
 
 ---
 
@@ -295,10 +308,11 @@ reduction itself using a different operation: **reduce-scatter** instead of
 **all-reduce**.
 
 The difference matters for memory. An all-reduce gives every rank the full averaged
-gradient — every rank stores `N × param_bytes` worth of gradient data. A
-reduce-scatter is like an all-reduce but each rank only receives its assigned
-`1/N` slice of the result. ZeRO-3 uses this to shard the gradients across DP ranks,
-so no rank ever stores the full gradient tensor. Tutorial 5 covers ZeRO in detail.
+gradient — every rank stores a full-size gradient tensor (one float per parameter).
+A reduce-scatter produces the same averaged values, but each rank only receives its
+assigned `1/N` slice. ZeRO-3 uses reduce-scatter so no rank ever stores the full
+gradient tensor; each rank stores and updates only its shard. Part 5 covers
+ZeRO in detail.
 
 The plugin system enforces the DDP/ZeRO mutual exclusion: both compete for the
 same `PluginId.DP` slot, and the runtime prevents two plugins from registering the
@@ -330,14 +344,15 @@ optimizer state for that parameter — all replicas are identical. The manifest'
 All of the above works on a single machine with multiple GPUs connected by NVLink.
 On a multi-node setup, the DP group spans machines connected by InfiniBand or
 RoCE. The code is identical — PyTorch's distributed package abstracts the transport.
-The difference is performance: NVLink bandwidth (~600 GB/s) is an order of magnitude
-higher than InfiniBand (~200 GB/s), so the relative cost of DDP all-reduce increases
-as you span more machines.
+The difference is performance: intra-node NVLink bandwidth (~900 GB/s per GPU on
+H100) is several times higher than typical cross-node bandwidth (a node with
+4–8 × 400 Gb/s NICs gets 200–400 GB/s *for the whole node*, shared across its
+GPUs), so the relative cost of DDP all-reduce increases as you span more machines.
 
-This is why large-scale pretraining combines DDP with ZeRO: ZeRO-3 reduces the
-communication volume from 2× model size (all-reduce) to 3× model size (all-gather
-+ reduce-scatter), but the per-step communication is spread across parameter fetches
-rather than one big synchronization point. Combined with TP that reduces the model
+This is why large-scale pretraining combines DDP with ZeRO: ZeRO-3 increases
+the raw communication volume from 2× model size (DDP all-reduce) to 3× model size
+(per-layer all-gathers + reduce-scatter), but that communication is spread across
+many small parameter fetches via prefetch rather than one large synchronization point. Combined with TP that reduces the model
 size visible at each DP rank, the communication overhead becomes manageable at
 hundreds of GPUs.
 
@@ -349,7 +364,7 @@ hundreds of GPUs.
 > A useful experiment here: benchmark `DataParallelPlugin` (sync) vs.
 > `BucketDataParallelPlugin` (async bucketed) on a 1B model with dp=4 on the same
 > machine. Expected result: bucketed gets closer to peak GPU utilization (higher
-> MFU) by overlapping the ~400ms all-reduce with the backward pass. At dp=2 on
+> MFU) by overlapping the all-reduce with the backward pass. At dp=2 on
 > NVLink the gap may be small; at dp=8 spanning nodes on InfiniBand it should be
 > significant.
 

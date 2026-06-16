@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pretraining Infra Deep Dive - MALTOS</title>
+    <meta
+      name="description"
+      content="Deep-dive notes on LLM pretraining systems: runtime contracts, sharding, checkpointing, pipeline schedules, and expert parallelism."
+    >
+    <link rel="stylesheet" href="../../styles.css">
+    <script>
+  (function () {
+    var key = "maltos-theme";
+    var root = document.documentElement;
+    function preferredTheme() {
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+    function currentTheme() {
+      return root.getAttribute("data-theme") || preferredTheme();
+    }
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      try { localStorage.setItem(key, theme); } catch (e) {}
+    }
+    try {
+      var saved = localStorage.getItem(key);
+      root.setAttribute("data-theme", saved === "dark" || saved === "light" ? saved : preferredTheme());
+    } catch (e) {
+      root.setAttribute("data-theme", preferredTheme());
+    }
+    document.addEventListener("DOMContentLoaded", function () {
+      var nav = document.querySelector(".nav-links");
+      if (!nav || nav.querySelector(".theme-toggle")) return;
+      var btn = document.createElement("button");
+      var icon = document.createElement("span");
+      var label = document.createElement("span");
+      btn.className = "theme-toggle";
+      btn.type = "button";
+      btn.setAttribute("aria-live", "polite");
+      icon.className = "theme-toggle-icon";
+      label.className = "theme-toggle-label";
+      btn.appendChild(icon);
+      btn.appendChild(label);
+      function sync() {
+        var dark = currentTheme() === "dark";
+        icon.textContent = dark ? "☀" : "☾";
+        label.textContent = dark ? "Light" : "Dark";
+        btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+        btn.title = dark ? "Switch to light theme" : "Switch to dark theme";
+      }
+      btn.addEventListener("click", function () {
+        applyTheme(currentTheme() === "dark" ? "light" : "dark");
+        sync();
+      });
+      sync();
+      nav.appendChild(btn);
+    });
+  })();
+</script>
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="Primary">
+        <a class="brand" href="../../index.html">
+          <img class="brand-mark" src="../../assets/maltos-wordmark.svg" alt="MALTOS">
+        </a>
+        <div class="nav-links">
+          <a class="nav-button" href="https://github.com/xing7code/maltos">GitHub</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-title">
+        <p class="eyebrow">Deep Dive Series</p>
+        <h1>Pretraining Infra Deep Dive</h1>
+        <p>
+          Design notes on runtime contracts, optimizer ownership, sharded
+          checkpoints, pipeline schedules, correctness, and expert parallelism.
+        </p>
+      </section>
+
+      <section class="post-list" aria-label="Deep dive posts">
+        <article class="post-row">
+          <div class="meta">May 26, 2026</div>
+          <div>
+            <h2><a href="maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h2>
+            <p>
+              MALTOS aims to democratize LLM pretraining by transforming it from
+              a specialized capability available only to a handful of large
+              organizations into a modular and accessible platform for the
+              broader AI community.
+            </p>
+          </div>
+          <div class="status">Overview</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Jun 11, 2026</div>
+          <div>
+            <h2><a href="composable-parallelism.html">Why Composable Parallelism Is Hard</a></h2>
+            <p>
+              Parallelism strategies do not naturally compose. What composes is
+              a protocol around model transformation, gradient reduction,
+              optimizer ownership, checkpoint layout, and metric semantics.
+            </p>
+          </div>
+          <div class="status">Deep dive</div>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>MALTOS</span>
+        <span><a href="../../index.html">Home</a></span>
+      </div>
+    </footer>
+  </body>
+</html>

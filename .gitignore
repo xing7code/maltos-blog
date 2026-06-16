@@ -1,0 +1,10 @@
+# Local preview tooling and working notes — never publish
+local_notes/
+
+# Jekyll build output
+_site/
+.jekyll-cache/
+.jekyll-metadata
+
+# macOS
+.DS_Store

@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "MALTOS: A Modular Runtime for LLM Training"
-description: Building a compact training runtime with process meshes, composable parallel plugins, sharded checkpoints, token-stream resume, and real 1/2/4 GPU experiments.
+description: MALTOS aims to democratize LLM pretraining by transforming it from a specialized capability available only to a handful of large organizations into a modular and accessible platform for the broader AI community.
 category: Runtime overview
 date: 2026-05-26
 read_time: 18 min read
@@ -24,17 +24,17 @@ cross-cutting edit. If they are contained behind a runtime/plugin boundary, the
 trainer stays stable and the strategies compose.
 
 I built MALTOS to study that problem from first principles. The goal was not to
-replace Megatron-LM, DeepSpeed, or FSDP. The goal was to build something small
-enough to understand end to end, but realistic enough to contain the same moving
-pieces that appear in production pretraining: process groups, model
+ship a bigger framework brochure. It was to build something small enough to
+understand end to end, but realistic enough to force the same hard decisions
+that production pretraining systems face: process groups, model
 transformations, mixed precision, sharded optimizer state, resumable data
 loading, distributed checkpoints, and runtime metrics.
 
-This post covers the system design and the first set of real training
-experiments: single-GPU baselines, 2-GPU TP/SP and bucketed DDP runs, and a
-4-GPU composition of TP, SP, and ZeRO3 on real FineWeb-Edu data. The experiments
-are intentionally small. They are meant to validate runtime correctness, not to
-train a useful language model.
+This post is the runtime overview for the deeper series. It covers the system
+design, the invariants that keep the trainer small, and the validation evidence
+that convinced me the runtime is doing real work rather than producing
+plausible-looking loss curves. The experiments are intentionally small. They are
+meant to validate runtime correctness, not to win a throughput benchmark.
 
 repo: [xing7code/maltos](https://github.com/xing7code/maltos)
 
@@ -68,7 +68,7 @@ implementation:
 
 The runtime is organized around a small number of components. The trainer drives
 policy; the runtime drives execution; plugins own distributed behavior; the
-state manager owns checkpoint boundaries.
+state manager owns checkpoint boundaries and trainer/dataloader resume state.
 
 <img src="../assets/runtime-overview.svg" alt="Runtime overview" width="100%">
 
@@ -114,10 +114,13 @@ or after others.
 
 For example:
 
-- precision setup should wrap execution before metrics inspect precision state,
 - tensor-parallel model transformation should happen before optimizer
   construction,
 - sequence parallelism depends on the tensor-parallel layout,
+- pipeline parallelism must partition the model before TP/SP/EP/ZeRO inspect
+  local module structure,
+- precision must wrap execution after structural transforms, otherwise plugins
+  such as EP see an autocast wrapper instead of the real model interface,
 - gradient clipping should run after gradients are reduced/sharded into their
   final local form,
 - checkpoint annotations from TP or ZeRO need to run after local checkpoint
@@ -139,7 +142,8 @@ early. Model transformation plugins may replace modules, shard parameters, or
 wrap tensors. If the optimizer is constructed before those transformations, it
 may hold references to the wrong parameters.
 
-The runtime therefore supports an optimizer factory:
+The runtime therefore supports an optimizer factory rather than a prebuilt
+optimizer:
 
 ```text
 construct model
@@ -154,12 +158,15 @@ construct model
 This also makes ownership explicit. In normal training, the runtime owns the
 optimizer. In ZeRO-style training, a plugin may own optimizer state because it
 needs to shard, save, or step it differently. The runtime validates that there
-is at most one optimizer owner.
+is at most one optimizer owner, and it does not accept externally constructed
+optimizers or schedulers. That constraint is deliberate: if the runtime does not
+control optimizer construction time, it cannot guarantee optimizer correctness
+after model transformation.
 
 ## Composable Parallelism
 
-The runtime currently supports ten parallelism plugins across all major distributed
-training axes:
+The runtime currently covers the main pretraining axes and the interactions that
+matter for correctness:
 
 | Strategy | Implementation role |
 |---|---|
@@ -167,7 +174,7 @@ training axes:
 | Sequence Parallelism | Partitions sequence-dimension activations around TP regions |
 | DDP | Synchronous and asynchronous gradient all-reduce |
 | Bucketed DDP | Gradient reduction by bucket to enable communication-compute overlap |
-| Pipeline Parallelism | Stages layers across PP ranks; supports 1F1B, interleaved, and zero-bubble schedules |
+| Pipeline Parallelism | Stages layers across PP ranks; supports AFAB and 1F1B schedules |
 | Context Parallelism | Shards sequence length across CP ranks; all-gather-KV and ring-attention variants |
 | Expert Parallelism | Routes tokens to expert subsets across EP ranks; supports TP/CP dimension reuse |
 | ZeRO1 | Shards optimizer state across DP ranks |
@@ -176,7 +183,8 @@ training axes:
 
 The important part is not that each plugin is production complete. The important
 part is that they compose through the same runtime interface. The same trainer
-can run single-GPU training, TP+SP, bucketed DDP, or DP+TP+SP+ZeRO3.
+can run single-GPU training, TP+SP, CP, PP, EP, bucketed DDP, or
+DP+TP+SP+ZeRO3 without branching on strategy-specific trainer code.
 
 Future work follows the same plugin pattern:
 
@@ -216,18 +224,17 @@ CheckpointEntry
   annotations
 ```
 
-The checkpoint layout is rank-local:
+The checkpoint layout is rank-local, with flat per-rank files:
 
 ```text
 step_00000200/
   manifest.json
-  trainer_state.pt
-  rank_00000/
-    model.pt
-    optimizer.pt
-  rank_00001/
-    model.pt
-    optimizer.pt
+  model_rank_0.pt
+  optim_rank_0.pt      # present only on ranks that hold optimizer state
+  trainer_rank_0.pt
+  model_rank_1.pt
+  trainer_rank_1.pt
+  ...
 ```
 
 The local layout keeps writes simple and scalable. The logical metadata makes
@@ -235,9 +242,9 @@ the checkpoint understandable after the fact.
 
 Optimizer checkpointing follows the same principle. If a plugin owns the
 optimizer, the plugin decides which ranks need to save optimizer shards. If the
-runtime owns the optimizer, the runtime decides based on the parallel topology:
-for example, DDP-only training does not need every data-parallel replica to save
-identical optimizer state, while TP ranks may need to save different shards.
+runtime owns the optimizer, the runtime computes optimizer source ranks from the
+active mesh axes. This is one of the places where "runtime-owned optimizer
+lifecycle" matters beyond stepping: it also determines checkpoint semantics.
 
 ## Data Loading and Resume Correctness
 
@@ -284,13 +291,29 @@ The runtime logs a small set of steady-state metrics:
 - precision overflow state.
 
 The metric path is runtime-aware. For example, token counts must not be
-double-counted across tensor-parallel ranks. Runtime metrics are collected by
-plugins and aggregated before logging to JSONL or W&B.
+double-counted across tensor-parallel ranks, and PP loss needs to be broadcast
+from the tail stage before logging. Runtime metrics are collected by plugins and
+aggregated before logging to JSONL or W&B.
 
 I intentionally avoided fine-grained CUDA event timing in the steady-state
 training loop. Forward/backward/optimizer timing breakdowns are useful during
 profiling, but they introduce synchronization points if measured naively. For
 regular training, low-overhead step-level metrics are the better default.
+
+## What I Validated
+
+The runtime is already beyond "unit-test clean but never exercised end to end."
+The validation story has three layers:
+
+- smoke tests for runtime core, trainer loop, and pretrain CLI
+- targeted equivalence tests for TP / PP / CP / EP / ZeRO combinations
+- real pretraining runs on tokenized FineWeb-Edu data with checkpoint/resume and
+  W&B logging
+
+The maintained test split mirrors that:
+
+- `tests/run_single_feature.sh` for single-feature regressions
+- `tests/run_matrix.sh` for the full-stack distributed matrix
 
 ## Experiments
 
@@ -433,7 +456,9 @@ on real tokenized data.
 
 The 2-GPU runs validate two different distributed paths. TP+SP exercises
 model-parallel transformation and sequence activation sharding. Bucketed DDP
-exercises data-parallel gradient reduction.
+exercises data-parallel gradient reduction. The larger matrix coverage for PP,
+CP, EP, and ZeRO compositions comes from the distributed regression suite rather
+than from these specific Vast runs.
 
 | Run | Topology | Loss Trend | Tokens / Sec | Step Time | Memory | Checkpoint / Resume |
 |---|---|---|---:|---:|---:|---|
@@ -533,35 +558,18 @@ TFLOPS without indicating a broken runtime. The useful question is whether the
 metric moves in the expected direction as the workload becomes larger and more
 GPU-bound.
 
+**A good training runtime is mostly about ownership boundaries.** Who owns the
+optimizer. Who owns gradient synchronization. Who owns checkpoint layout. Who is
+allowed to replace the step runner. Most "distributed training bugs" are really
+ownership bugs that only show up once multiple strategies compose.
+
 ## What Comes Next
 
-This post covered the system design and the first set of training evidence. Two
-ongoing series go deeper:
+Two ongoing series go deeper into the runtime design. The first article in the
+deep-dive series is already up:
+[Why Composable Parallelism Is Hard](composable-parallelism.html).
 
-**Deep-dive series** — design decisions, tradeoffs, and implementation details
-for engineers building or evaluating similar systems:
-
-1. *Why composable parallelism is hard*: the five interaction surfaces and the
-   plugin protocol that contains them.
-2. *The optimizer lifecycle under sharding*: why the factory pattern matters and
-   where the naive approach silently produces wrong results.
-3. *Checkpoint semantics under sharding*: manifests, atomic writes, and what
-   state is actually required for a correct resume.
-4. *Pipeline parallel schedules*: what the papers leave unspecified about
-   implementation.
-
-**Tutorial series** — building a pretraining system from first principles, one
-component at a time:
-
-1. *The pretraining loop, from scratch*: the minimal training loop and what it
-   leaves out.
-2. *How we store and stream tokens*: shards, memory mapping, and DP-aware data
-   loading with deterministic resume.
-3. *Data parallelism*: gradient reduction semantics and bucketed DDP.
-4. *Tensor and sequence parallelism*: sharding linear layers and activations.
-5. *ZeRO optimizer sharding*: what gets distributed at each of the three stages.
-
-The long-term goal is not just to build another training script. It is to build
-a compact, inspectable runtime that makes modern pretraining infrastructure
-easier to reason about—and to document the design decisions clearly enough that
-the same patterns can be extended to post-training and beyond.
+The Pretraining Concepts series covers the full distributed training stack from
+first principles, one component at a time — training loop, data loading, DDP,
+TP/SP, ZeRO, PP, CP, and MoE. More pieces from both series are publishing
+gradually.

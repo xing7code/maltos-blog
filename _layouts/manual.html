@@ -1,0 +1,52 @@
+---
+layout: default
+---
+
+<button class="manual-toc-toggle" type="button" aria-label="Toggle contents">
+  <span class="manual-toc-toggle-icon">☰</span>
+  <span class="manual-toc-toggle-label">Contents</span>
+</button>
+
+<div class="manual-shell">
+  <aside class="manual-sidebar">
+    {% include manual_nav.html %}
+  </aside>
+
+  <article class="manual-content">
+    <header class="manual-head">
+      <p class="eyebrow">{{ page.category | default: "MALTOS Guide" }}</p>
+      <h1>{{ page.title }}</h1>
+      {% if page.description %}
+        <p class="post-deck">{{ page.description }}</p>
+      {% endif %}
+    </header>
+
+    <div class="post-body">
+      {{ content }}
+    </div>
+  </article>
+</div>
+
+<script>
+  (function () {
+    var body = document.body;
+    var button = document.querySelector(".manual-toc-toggle");
+    if (button) {
+      button.addEventListener("click", function () {
+        if (window.matchMedia("(max-width: 1000px)").matches) {
+          body.classList.toggle("toc-open");
+          return;
+        }
+        body.classList.toggle("toc-collapsed");
+      });
+    }
+    var here = location.pathname.split("/").pop() || "index.html";
+    document.querySelectorAll(".manual-nav a").forEach(function (a) {
+      if (a.getAttribute("href") === here) {
+        a.classList.add("active");
+        var group = a.closest("details");
+        if (group) group.open = true;
+      }
+    });
+  })();
+</script>

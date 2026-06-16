@@ -1,0 +1,98 @@
+<svg viewBox="0 0 760 268" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="268" fill="#fff"/>
+
+  <!-- Title -->
+  <text x="380" y="20" text-anchor="middle" font-size="13" font-weight="700" fill="#141414">ZeRO Stages: Memory Per Rank (7B model, N=8 DP ranks)</text>
+  <text x="380" y="34" text-anchor="middle" font-size="11" fill="#5f625f">Adam: 2 bytes params + 4 bytes grad + 4 bytes m + 4 bytes v = 14 bytes/param total → 98 GB for 7B</text>
+
+  <!-- Y-axis label -->
+  <text x="8" y="160" font-size="10" fill="#5f625f" transform="rotate(-90, 8, 160)">GB per rank</text>
+
+  <!-- Column headers -->
+  <text x="120" y="52" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">DDP</text>
+  <text x="120" y="64" text-anchor="middle" font-size="10" fill="#5f625f">(baseline)</text>
+  <text x="280" y="52" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">ZeRO-1</text>
+  <text x="280" y="64" text-anchor="middle" font-size="10" fill="#5f625f">shard opt state</text>
+  <text x="440" y="52" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">ZeRO-2</text>
+  <text x="440" y="64" text-anchor="middle" font-size="10" fill="#5f625f">+ shard grads</text>
+  <text x="600" y="52" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">ZeRO-3</text>
+  <text x="600" y="64" text-anchor="middle" font-size="10" fill="#5f625f">+ shard params</text>
+
+  <!-- Scale: max bar height = 160px for 84 GB. Scale = 160/84 ≈ 1.9 px/GB -->
+  <!-- We'll use 1.9 px/GB and anchor bars at y=235 (bottom) -->
+  <!-- Values: DDP=84GB, ZeRO1=35GB, ZeRO2=23GB, ZeRO3=10GB -->
+
+  <!-- Color coding: params=teal, grads=mid-teal, opt-state=light teal -->
+
+  <!-- DDP column (84 GB total): params 14, grads 14, opt 56 -->
+  <!-- bar heights: params=26.6, grads=26.6, opt=106.4 → rounded -->
+  <!-- params (2b each, bf16): 14 GB → h=26 -->
+  <rect x="72" y="209" width="96" height="26" rx="2" fill="#0f766e"/>
+  <text x="120" y="225" text-anchor="middle" font-size="9" fill="#fff">params  14 GB</text>
+  <!-- grads (2b each): 14 GB → h=26 -->
+  <rect x="72" y="183" width="96" height="26" rx="2" fill="#1a9e95"/>
+  <text x="120" y="199" text-anchor="middle" font-size="9" fill="#fff">grads  14 GB</text>
+  <!-- opt state (m+v, fp32): 56 GB → h=106 -->
+  <rect x="72" y="77" width="96" height="106" rx="2" fill="#73c9c3"/>
+  <text x="120" y="118" text-anchor="middle" font-size="9" fill="#fff">opt state</text>
+  <text x="120" y="130" text-anchor="middle" font-size="9" fill="#fff">56 GB</text>
+  <!-- total label -->
+  <text x="120" y="70" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">84 GB</text>
+
+  <!-- ZeRO-1 column (35 GB): params 14, grads 14, opt 7 -->
+  <!-- params: 14 GB → h=26 -->
+  <rect x="232" y="209" width="96" height="26" rx="2" fill="#0f766e"/>
+  <text x="280" y="225" text-anchor="middle" font-size="9" fill="#fff">params  14 GB</text>
+  <!-- grads: 14 GB → h=26 -->
+  <rect x="232" y="183" width="96" height="26" rx="2" fill="#1a9e95"/>
+  <text x="280" y="199" text-anchor="middle" font-size="9" fill="#fff">grads  14 GB</text>
+  <!-- opt state sharded: 56/8=7 GB → h=13 -->
+  <rect x="232" y="170" width="96" height="13" rx="2" fill="#73c9c3"/>
+  <text x="280" y="163" text-anchor="middle" font-size="9" fill="#5f625f">opt ÷8 = 7 GB</text>
+  <!-- total label -->
+  <text x="280" y="155" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">35 GB</text>
+
+  <!-- ZeRO-2 column (23 GB): params 14, grads 2, opt 7 -->
+  <!-- params: 14 GB → h=26 -->
+  <rect x="392" y="209" width="96" height="26" rx="2" fill="#0f766e"/>
+  <text x="440" y="225" text-anchor="middle" font-size="9" fill="#fff">params  14 GB</text>
+  <!-- grads sharded: 14/8≈2 GB → h=4 -->
+  <rect x="392" y="205" width="96" height="4" rx="1" fill="#1a9e95"/>
+  <!-- opt sharded: 7 GB → h=13 -->
+  <rect x="392" y="192" width="96" height="13" rx="2" fill="#73c9c3"/>
+  <text x="440" y="187" text-anchor="middle" font-size="9" fill="#5f625f">grads+opt ÷8 = 9 GB</text>
+  <!-- total label -->
+  <text x="440" y="177" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">23 GB</text>
+
+  <!-- ZeRO-3 column (10 GB): all sharded: 14/8+14/8+56/8 = 1.75+1.75+7 ≈ 10.5 GB -->
+  <!-- All sharded: h = 19 -->
+  <rect x="552" y="216" width="96" height="19" rx="2" fill="#0f766e"/>
+  <text x="600" y="229" text-anchor="middle" font-size="9" fill="#fff">params ÷8 = 2 GB</text>
+  <rect x="552" y="210" width="96" height="6" rx="1" fill="#1a9e95"/>
+  <!-- opt sharded: 7 GB → h=13 -->
+  <rect x="552" y="197" width="96" height="13" rx="2" fill="#73c9c3"/>
+  <text x="600" y="188" text-anchor="middle" font-size="9" fill="#5f625f">all sharded ÷8 ≈ 10 GB</text>
+  <!-- total label -->
+  <text x="600" y="178" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">~10 GB</text>
+
+  <!-- baseline (x-axis) -->
+  <line x1="50" y1="235" x2="720" y2="235" stroke="#c9cbc2" stroke-width="1"/>
+
+  <!-- column separators -->
+  <line x1="200" y1="50" x2="200" y2="240" stroke="#c9cbc2" stroke-width="0.5" stroke-dasharray="4,3"/>
+  <line x1="360" y1="50" x2="360" y2="240" stroke="#c9cbc2" stroke-width="0.5" stroke-dasharray="4,3"/>
+  <line x1="520" y1="50" x2="520" y2="240" stroke="#c9cbc2" stroke-width="0.5" stroke-dasharray="4,3"/>
+
+  <!-- Extra comm annotation for ZeRO stages -->
+  <text x="280" y="249" text-anchor="middle" font-size="9" fill="#5f625f">+all-gather after step</text>
+  <text x="440" y="249" text-anchor="middle" font-size="9" fill="#5f625f">+reduce-scatter</text>
+  <text x="600" y="249" text-anchor="middle" font-size="9" fill="#5f625f">+all-gather per fwd layer</text>
+
+  <!-- Legend -->
+  <rect x="50" y="256" width="12" height="8" rx="1" fill="#0f766e"/>
+  <text x="66" y="263" font-size="9" fill="#5f625f">Parameters</text>
+  <rect x="130" y="256" width="12" height="8" rx="1" fill="#1a9e95"/>
+  <text x="146" y="263" font-size="9" fill="#5f625f">Gradients</text>
+  <rect x="200" y="256" width="12" height="8" rx="1" fill="#73c9c3"/>
+  <text x="216" y="263" font-size="9" fill="#5f625f">Optimizer state (m, v)</text>
+</svg>

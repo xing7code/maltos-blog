@@ -2,28 +2,91 @@
 layout: default
 ---
 
-<main>
-  <article class="post">
-    <header class="post-hero">
-      <p class="eyebrow">{{ page.category | default: "Technical note" }}</p>
-      <h1>{{ page.title }}</h1>
-      {% if page.description %}
-        <p class="post-deck">{{ page.description }}</p>
+{% assign is_manual_post = page.url contains '/blog/internals/' or page.url contains '/blog/tutorials/' %}
+
+{% if is_manual_post %}
+  <button class="manual-toc-toggle" type="button" aria-label="Toggle contents">
+    <span class="manual-toc-toggle-icon">☰</span>
+    <span class="manual-toc-toggle-label">Contents</span>
+  </button>
+
+  <div class="manual-shell manual-shell-post">
+    <aside class="manual-sidebar">
+      {% include manual_nav.html %}
+    </aside>
+
+    <article class="manual-content post">
+      <header class="manual-head post-hero">
+        <p class="eyebrow">{{ page.category | default: "Technical note" }}</p>
+        <h1>{{ page.title }}</h1>
+        {% if page.description %}
+          <p class="post-deck">{{ page.description }}</p>
+        {% endif %}
+        <div class="post-meta">
+          {% if page.date %}<span>{{ page.date | date: "%b %-d, %Y" }}</span>{% endif %}
+          {% if page.read_time %}<span>{{ page.read_time }}</span>{% endif %}
+        </div>
+      </header>
+
+      {% if page.hero_image %}
+        <div class="post-hero-image">
+          <img src="{{ page.hero_image | relative_url }}" alt="{{ page.hero_alt | default: page.title }}">
+        </div>
       {% endif %}
-      <div class="post-meta">
-        {% if page.date %}<span>{{ page.date | date: "%b %-d, %Y" }}</span>{% endif %}
-        {% if page.read_time %}<span>{{ page.read_time }}</span>{% endif %}
-      </div>
-    </header>
 
-    {% if page.hero_image %}
-      <div class="post-hero-image">
-        <img src="{{ page.hero_image | relative_url }}" alt="{{ page.hero_alt | default: page.title }}">
+      <div class="post-body">
+        {{ content }}
       </div>
-    {% endif %}
+    </article>
+  </div>
 
-    <div class="post-body">
-      {{ content }}
-    </div>
-  </article>
-</main>
+  <script>
+    (function () {
+      var body = document.body;
+      var button = document.querySelector(".manual-toc-toggle");
+      if (button) {
+        button.addEventListener("click", function () {
+          if (window.matchMedia("(max-width: 1000px)").matches) {
+            body.classList.toggle("toc-open");
+            return;
+          }
+          body.classList.toggle("toc-collapsed");
+        });
+      }
+      var here = location.pathname.split("/").pop() || "index.html";
+      document.querySelectorAll(".manual-nav a").forEach(function (a) {
+        if (a.getAttribute("href") === here) {
+          a.classList.add("active");
+          var group = a.closest("details");
+          if (group) group.open = true;
+        }
+      });
+    })();
+  </script>
+{% else %}
+  <main>
+    <article class="post">
+      <header class="post-hero">
+        <p class="eyebrow">{{ page.category | default: "Technical note" }}</p>
+        <h1>{{ page.title }}</h1>
+        {% if page.description %}
+          <p class="post-deck">{{ page.description }}</p>
+        {% endif %}
+        <div class="post-meta">
+          {% if page.date %}<span>{{ page.date | date: "%b %-d, %Y" }}</span>{% endif %}
+          {% if page.read_time %}<span>{{ page.read_time }}</span>{% endif %}
+        </div>
+      </header>
+
+      {% if page.hero_image %}
+        <div class="post-hero-image">
+          <img src="{{ page.hero_image | relative_url }}" alt="{{ page.hero_alt | default: page.title }}">
+        </div>
+      {% endif %}
+
+      <div class="post-body">
+        {{ content }}
+      </div>
+    </article>
+  </main>
+{% endif %}

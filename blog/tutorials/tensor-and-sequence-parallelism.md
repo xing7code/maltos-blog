@@ -2,7 +2,7 @@
 layout: post
 title: "Tensor and Sequence Parallelism"
 description: TP shards each weight matrix across multiple GPUs. SP shards the activations between layers. Together they reduce memory and increase compute throughput — but they require a specific communication pattern that must be woven into the forward and backward passes of every layer.
-category: Tutorial · Part 4 of 5
+category: Pretraining Concepts · Part 4 of 8
 date: 2026-06-11
 read_time: 15 min read
 ---
@@ -70,12 +70,19 @@ class ColumnParallelLinear(nn.Module):
     def __init__(self, in_features, out_features, tp_group, gather_output=False):
         self.weight = nn.Parameter(
             torch.zeros(out_features // world_size, in_features)
-        )  # local weight: [d_out/N, d_in] (transposed conv layout)
+        )  # local weight: [d_out/N, d_in]
+        # PyTorch's nn.Linear stores weight as [out_features, in_features];
+        # F.linear(x, w) computes x @ w.T, so this column-sharded slice is correct.
         self.tp_group = tp_group
         self.gather_output = gather_output
 
     def forward(self, x):
         # x: [B, T, d_in] — replicated on all ranks
+        # CopyToModelParallelRegion is a custom autograd function:
+        #   forward: identity (no-op)
+        #   backward: all-reduce of dL/dX across the TP group
+        # This is where the input gradient all-reduce happens.
+        x = CopyToModelParallelRegion.apply(x, self.tp_group)
         y = F.linear(x, self.weight)  # [B, T, d_out/N] — sharded
         if self.gather_output:
             # all-gather: used when the next layer expects full output
@@ -123,7 +130,7 @@ Each rank's partial result `Z_i = X_i @ W_i` has the full output shape `[B, T, d
 but only contains the contribution from the `i`-th input slice. Summing all partials
 gives the correct output.
 
-With `post_comm="all_reduce"`, this sum is an all-reduce. With `post_comm="all_to_all"`,
+With `comm="all_reduce"`, this sum is an all-reduce. With `comm="reduce_scatter"`,
 this is where sequence parallelism enters — more on this below.
 
 ---
@@ -140,8 +147,18 @@ V = X @ W_v     W_v: [d_model, d_head × n_heads]
 
 All three are column-parallel: each TP rank handles a subset of attention heads.
 Rank `i` computes attention between its own Q_i, K_i, V_i slices — no
-inter-rank communication needed during attention computation. The output projection
-is row-parallel:
+inter-rank communication needed during attention computation.
+
+**Grouped-query attention (GQA)**: modern models (e.g., LLaMA 3, Mistral) use
+fewer KV heads than Q heads (e.g., 8 KV heads vs. 32 Q heads). With TP, the
+column-sharding constraint is that `num_heads_kv` must be divisible by `tp_world_size`
+— otherwise some TP ranks would have an unequal number of KV heads. At tp=4 with
+8 KV heads, each rank has 2 KV heads and 8 Q heads, which is valid. At tp=8 with
+8 KV heads, each rank has 1 KV head — still valid. At tp=16 with 8 KV heads, the
+division is impossible. MALTOS caps TP at the KV head count in this case;
+production systems (e.g., Megatron-LM) instead *replicate* KV heads across the
+extra ranks — each KV head is duplicated on tp/num_kv_heads ranks — trading a
+little memory to keep scaling. The output projection is row-parallel:
 
 ```
 O = Softmax(QKᵀ/√d) @ V @ W_o     W_o: [d_head × n_heads, d_model]
@@ -166,8 +183,11 @@ for rule in spec.rules:
             RowParallelLinear.from_linear(module, self.tp_group, ...))
 ```
 
-The original `nn.Linear` weights are sliced along the correct axis and copied into
-the local replacement module. The rest of the model is unchanged.
+The `from_linear` class method extracts this rank's weight slice from the original
+`nn.Linear` (e.g., columns `[rank * d_out/N : (rank+1) * d_out/N]` for column
+sharding) and constructs a new module with only that slice as its `weight` parameter.
+The original `nn.Linear` module is discarded; only the local slice lives in memory.
+The rest of the model is unchanged.
 
 ---
 
@@ -214,9 +234,11 @@ Inside TP layers:
 
 The net effect: layer norm, residual connections, and dropout operate on
 `[B, T/N, d_model]` rather than `[B, T, d_model]`, cutting their activation
-memory by a factor of N. Total communication bandwidth is unchanged versus vanilla
-TP (one all-reduce per layer becomes one all-gather plus one reduce-scatter, same
-bytes on the wire), but activations in the SP regions are N× smaller.
+memory by a factor of N. Total communication volume per layer is roughly unchanged
+versus vanilla TP: the all-reduce on `[B, T, d_model]` (2× data moved) is replaced
+by an all-gather on `[B, T/N, d_model]` (moves `B×T×d_model` bytes total across
+the group) plus a reduce-scatter (same volume). The activations in the SP regions
+are N× smaller, which is the primary benefit.
 
 ---
 
@@ -259,13 +281,15 @@ gradient flows back into `ColumnParallelLinear` as a sharded input gradient.
 gradient that flows to the previous layer. Since each rank holds a slice of the
 output `Y_i`, it computes a partial `dL/dX_partial = dL/dY_i @ W_iᵀ`. Summing
 these partials across ranks gives the full input gradient — and that sum is the
-all-reduce that appears in `ColumnParallelLinear`'s backward. PyTorch's autograd
-inserts this automatically because the forward pass used a distribution of work
-across ranks: the backward must undo that distribution.
+all-reduce that appears in `ColumnParallelLinear`'s backward. This all-reduce is
+not inserted by PyTorch's autograd automatically (autograd doesn't know about
+distributed topology). Instead, `ColumnParallelLinear` uses a custom autograd
+function whose `backward()` method explicitly calls `dist.all_reduce`, ensuring
+the communication happens at the right point in the backward pass.
 
 **In short**: weight gradients in TP are local (no communication). Input gradients
-require an all-reduce at each `ColumnParallelLinear` boundary, handled transparently
-by autograd.
+require an all-reduce at each `ColumnParallelLinear` boundary, performed by a
+custom autograd function baked into the layer implementation.
 
 ---
 

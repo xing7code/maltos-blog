@@ -1,0 +1,12 @@
+<svg width="572" height="196" viewBox="0 0 572 196" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="572" height="196" rx="22" fill="#F7F7F4"/>
+  <rect x="24" y="26" width="144" height="144" rx="24" fill="#171410"/>
+  <path d="M56 138V58H76L96 95L116 58H136V138H114V96L98 125H94L78 96V138H56Z" fill="#F7F7F4"/>
+  <path d="M80 52L96 36L112 52" stroke="#53C2B2" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="182" y="164"
+        fill="#171410"
+        font-family="Inter, Arial, sans-serif"
+        font-size="112"
+        font-weight="800"
+        letter-spacing="1.5">ALTOS</text>
+</svg>

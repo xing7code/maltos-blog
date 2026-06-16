@@ -9,45 +9,169 @@
       content="Technical writing on LLM pretraining runtime design, distributed checkpointing, profiler traces, and post-training infrastructure."
     >
     <link rel="stylesheet" href="styles.css">
+    <script>
+  (function () {
+    var key = "maltos-theme";
+    var root = document.documentElement;
+    function preferredTheme() {
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+    function currentTheme() {
+      return root.getAttribute("data-theme") || preferredTheme();
+    }
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      try { localStorage.setItem(key, theme); } catch (e) {}
+    }
+    try {
+      var saved = localStorage.getItem(key);
+      root.setAttribute("data-theme", saved === "dark" || saved === "light" ? saved : preferredTheme());
+    } catch (e) {
+      root.setAttribute("data-theme", preferredTheme());
+    }
+    document.addEventListener("DOMContentLoaded", function () {
+      var nav = document.querySelector(".nav-links");
+      if (!nav || nav.querySelector(".theme-toggle")) return;
+      var btn = document.createElement("button");
+      var icon = document.createElement("span");
+      var label = document.createElement("span");
+      btn.className = "theme-toggle";
+      btn.type = "button";
+      btn.setAttribute("aria-live", "polite");
+      icon.className = "theme-toggle-icon";
+      label.className = "theme-toggle-label";
+      btn.appendChild(icon);
+      btn.appendChild(label);
+      function sync() {
+        var dark = currentTheme() === "dark";
+        icon.textContent = dark ? "☀" : "☾";
+        label.textContent = dark ? "Light" : "Dark";
+        btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+        btn.title = dark ? "Switch to light theme" : "Switch to dark theme";
+      }
+      btn.addEventListener("click", function () {
+        applyTheme(currentTheme() === "dark" ? "light" : "dark");
+        sync();
+      });
+      sync();
+      nav.appendChild(btn);
+    });
+  })();
+</script>
   </head>
   <body>
     <header class="site-header">
       <nav class="nav" aria-label="Primary">
         <a class="brand" href="index.html">
-          <img class="brand-mark" src="assets/maltos-mark.svg" alt="" aria-hidden="true">
-          <span>MALTOS</span>
+          <img class="brand-mark" src="assets/maltos-wordmark.svg" alt="MALTOS">
         </a>
         <div class="nav-links">
-          <a href="index.html">Articles</a>
-          <a href="https://github.com/xing7code/maltos">GitHub repo</a>
+          <a class="nav-button" href="https://github.com/xing7code/maltos">GitHub</a>
         </div>
       </nav>
     </header>
 
     <main>
-      <section class="page-title compact">
-        <p class="eyebrow">Technical blog</p>
-        <h1>MALTOS: Modular Assembly LLM Training and Optimization Systems.</h1>
-        <p>
-          Notes from building a compact training runtime where parallelism,
-          checkpointing, precision, metrics, and profiling compose through
-          plugins.
-        </p>
+      <section class="home-slogan" aria-label="Site introduction">
+        <h1>A readable runtime for large-scale LLM training</h1>
       </section>
 
-      <section class="post-list" aria-label="Posts">
-        <article class="post-row featured">
-          <div class="meta">Published</div>
-          <div>
-            <h2><a href="blog/maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h2>
+      <section class="home-section whats-new" aria-labelledby="whats-new-title">
+        <div class="home-section-head">
+          <h2 id="whats-new-title">What's new</h2>
+        </div>
+        <div class="whats-new-layout">
+          <article class="new-lead">
+            <div class="meta">Deep dive / Jun 11, 2026</div>
+            <h3><a href="blog/internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h3>
             <p>
-              A full-system overview of RuntimeCore, plugin ordering, TP/SP, DDP,
-              ZeRO stages, sharded checkpointing, data resume, metrics, and real
-              1/2/4 GPU experiments.
+              Parallelism strategies do not naturally compose. What composes is
+              a protocol around model transformation, gradient reduction,
+              optimizer ownership, checkpoint layout, and metric semantics.
             </p>
+            <a class="read-link" href="blog/internals/composable-parallelism.html">Read article</a>
+          </article>
+
+          <div class="new-stack">
+            <article class="new-item">
+              <div class="meta">Chapter 7</div>
+              <h3><a href="blog/tutorials/context-parallelism.html">Context Parallelism</a></h3>
+              <p>
+                Long-sequence training with ring attention, zigzag assignment, KV
+                movement, and CP memory tradeoffs.
+              </p>
+            </article>
+
+            <article class="new-item">
+              <div class="meta">Chapter 8</div>
+              <h3><a href="blog/tutorials/moe-and-expert-parallelism.html">Mixture of Experts and Expert Parallelism</a></h3>
+              <p>
+                Top-1 routing, all-to-all token dispatch, expert sharding, and how
+                expert gradients differ from shared grads.
+              </p>
+            </article>
           </div>
-          <div class="status">Runtime overview</div>
-        </article>
+        </div>
+      </section>
+
+      <section class="home-section" aria-labelledby="tutorial-title">
+        <div class="home-section-head">
+          <h2 id="tutorial-title">Pretraining Concepts</h2>
+          <a class="section-more" href="blog/tutorials/index.html">More</a>
+        </div>
+        <div class="home-card-grid">
+          <article class="article-card home-card">
+            <div class="article-card-body">
+              <div class="meta">Chapter 1</div>
+              <h3><a href="blog/tutorials/pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></h3>
+              <p>The minimal loop, what it leaves out, and how scaling pressure changes the shape of training code.</p>
+              <a class="read-link" href="blog/tutorials/pretraining-loop-from-scratch.html">Read article</a>
+            </div>
+          </article>
+          <article class="article-card home-card">
+            <div class="article-card-body">
+              <div class="meta">Chapter 2</div>
+              <h3><a href="blog/tutorials/how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></h3>
+              <p>Token shards, memory mapping, DP-aware streaming, and why dataloader cursor state matters for exact resume.</p>
+              <a class="read-link" href="blog/tutorials/how-we-store-and-stream-tokens.html">Read article</a>
+            </div>
+          </article>
+          <article class="article-card home-card">
+            <div class="article-card-body">
+              <div class="meta">Chapter 3</div>
+              <h3><a href="blog/tutorials/data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></h3>
+              <p>All-reduce, bucketed async DDP, flat grad buffers, and where data parallel semantics start leaking upward.</p>
+              <a class="read-link" href="blog/tutorials/data-parallelism-ddp.html">Read article</a>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="home-section" aria-labelledby="deep-dive-title">
+        <div class="home-section-head">
+          <h2 id="deep-dive-title">Deep Dive</h2>
+          <a class="section-more" href="blog/internals/index.html">More</a>
+        </div>
+        <div class="home-card-grid">
+          <article class="article-card home-card">
+            <div class="article-card-body">
+              <div class="meta">Overview</div>
+              <h3><a href="blog/internals/maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h3>
+              <p>MALTOS aims to democratize LLM pretraining by transforming it from a specialized capability available only to a handful of large organizations into a modular and accessible platform for the broader AI community.</p>
+              <a class="read-link" href="blog/internals/maltos-a-modular-runtime-for-llm-training.html">Read article</a>
+            </div>
+          </article>
+          <article class="article-card home-card">
+            <div class="article-card-body">
+              <div class="meta">Composition</div>
+              <h3><a href="blog/internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h3>
+              <p>What actually composes is a protocol around model transforms, reducers, optimizer ownership, checkpoint layout, and metrics.</p>
+              <a class="read-link" href="blog/internals/composable-parallelism.html">Read article</a>
+            </div>
+          </article>
+        </div>
       </section>
     </main>
 

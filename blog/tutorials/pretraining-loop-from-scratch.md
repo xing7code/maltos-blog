@@ -2,7 +2,7 @@
 layout: post
 title: "The Pretraining Loop, From Scratch"
 description: Before you need tensor parallelism or ZeRO, you need a working training loop. This article builds one from first principles — the minimal version, what it leaves out, and why the structure matters when you scale.
-category: Tutorial · Part 1 of 5
+category: Pretraining Concepts · Part 1 of 8
 date: 2026-06-11
 read_time: 12 min read
 ---
@@ -20,7 +20,7 @@ breaks down, and shows how the structure needs to change to accommodate scale.
 
 ---
 
-**This series**: five articles building a pretraining stack from first principles.
+**This series**: eight articles building a pretraining stack from first principles.
 
 | Article | Topic |
 |---|---|
@@ -29,8 +29,11 @@ breaks down, and shows how the structure needs to change to accommodate scale.
 | **Part 3** | Data parallelism: gradient all-reduce and bucketed async DDP |
 | **Part 4** | Tensor and sequence parallelism: sharding weight matrices across GPUs |
 | **Part 5** | ZeRO optimizer sharding: cutting memory by sharding optimizer state and weights |
+| **Part 6** | Pipeline parallelism: splitting model depth across nodes with microbatch schedules |
+| **Part 7** | Context parallelism: training on very long sequences with ring attention |
+| **Part 8** | Mixture of Experts and expert parallelism: scaling parameters without scaling compute |
 
-**Prerequisites**: Python, PyTorch basics (`nn.Module`, `torch.optim`, tensor operations), and a working understanding of how gradient descent trains a neural network. No prior distributed training knowledge is assumed — Parts 3–5 introduce distributed concepts as needed.
+**Prerequisites**: Python, PyTorch basics (`nn.Module`, `torch.optim`, tensor operations), and a working understanding of how gradient descent trains a neural network. No prior distributed training knowledge is assumed — Parts 3–8 introduce distributed concepts as needed.
 
 ---
 
@@ -44,10 +47,10 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
 
 for step in range(max_steps):
     batch = get_next_batch()  # {"input_ids": Tensor[B, T], "labels": Tensor[B, T]}
-    loss = model(batch["input_ids"], batch["labels"])  # model computes cross-entropy and returns scalar loss
+    loss = model(batch["input_ids"], batch["labels"])  # cross-entropy loss, returned as a scalar
     loss.backward()
     optimizer.step()
-    optimizer.zero_grad()
+    optimizer.zero_grad()  # zero AFTER step is fine; zeroing before backward also works.
     print(f"step={step}  loss={loss.item():.4f}")
 ```
 
@@ -75,7 +78,7 @@ optimizer step, accumulating gradients:
 optimizer.zero_grad()
 for micro_step in range(grad_accum_steps):
     batch = get_next_batch()
-    loss = model(batch) / grad_accum_steps  # scale before backward
+    loss = model(batch["input_ids"], batch["labels"]) / grad_accum_steps  # scale before backward
     loss.backward()
 # gradients have accumulated across all micro-steps
 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -105,7 +108,7 @@ backward passes while maintaining higher-precision optimizer state:
 
 ```python
 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-    loss = model(batch) / grad_accum_steps
+    loss = model(batch["input_ids"], batch["labels"]) / grad_accum_steps
 loss.backward()
 ```
 
@@ -137,7 +140,7 @@ Use `bfloat16` on A100/H100. On older hardware (V100, earlier) that doesn't supp
 # float16 path — use only on hardware that doesn't support bfloat16
 scaler = torch.amp.GradScaler()
 with torch.autocast(device_type="cuda", dtype=torch.float16):
-    loss = model(batch) / grad_accum_steps
+    loss = model(batch["input_ids"], batch["labels"]) / grad_accum_steps
 scaler.scale(loss).backward()
 if micro_step == grad_accum_steps - 1:
     scaler.unscale_(optimizer)
@@ -307,6 +310,11 @@ Putting the above together:
 ```python
 model = GPT(...).cuda()
 optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, weight_decay=0.1)
+# CosineAnnealingLR decays the LR from the initial value to near-zero following
+# a cosine curve over T_max steps. This is the standard LLM pretraining schedule:
+# the LR stays high during most of training and tapers off at the end.
+# Production runs often add a short linear warmup (100–2000 steps) before the
+# cosine decay to avoid large updates at initialization; that's omitted here for brevity.
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max_steps)
 dataloader = PretrainingDataLoader(dataset, seq_len=1024, micro_batch_size=4)
 
@@ -321,18 +329,23 @@ for step in range(start_step, max_steps):
     for _ in range(grad_accum_steps):
         batch = dataloader.next_batch()
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            loss = model(batch) / grad_accum_steps
+            loss = model(batch["input_ids"], batch["labels"]) / grad_accum_steps
         loss.backward()
 
     # clip and step
     grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
     optimizer.step()
     scheduler.step()
+    # Note: scheduler.step() advances the LR schedule, so get_last_lr() below
+    # returns the LR for the NEXT step, not the one just used. To log the LR
+    # that was used for the current step, read it before scheduler.step().
 
     # log
     if step % log_every == 0:
         # batch_tokens = grad_accum_steps * micro_batch_size * seq_len
         # step_time: measure with time.perf_counter() around the accumulation loop
+        # loss.item() here is the last micro-step's (scaled) loss; for logging,
+        # accumulate a running sum across micro-steps and divide by grad_accum_steps.
         tokens_per_sec = batch_tokens / step_time
         print(f"step={step}  loss={loss.item():.4f}  lr={scheduler.get_last_lr()[0]:.2e}"
               f"  grad_norm={grad_norm:.3f}  tok/s={tokens_per_sec:.0f}")
@@ -353,20 +366,23 @@ from ~2.5 to below 2.0 in a few hundred steps. The infrastructure works.
 Two limits motivate distributed training:
 
 **Memory**. The parameters, gradients, and optimizer states for a 7B-parameter
-model exceed the memory of any single GPU. Under Adam, each parameter requires:
+model exceed the memory of any single GPU. Under Adam with mixed precision, each
+parameter requires:
 - 2 bytes (parameter, in bf16)
 - 4 bytes (optimizer first moment, in fp32)
 - 4 bytes (optimizer second moment, in fp32)
-- 2 bytes (gradient, in bf16)
+- 2 bytes (gradient, in bf16; some implementations keep gradients in fp32, adding 2 bytes)
 
-That's 12 bytes per parameter, or ~84 GB for a 7B-parameter model — before
-activations. A single H100 has 80 GB. Single-GPU training of a 7B model is not
-possible.
+That's 12 bytes per parameter at minimum, or ~84 GB for a 7B-parameter model —
+before activations. A single H100 has 80 GB. Single-GPU training of a 7B model
+is not possible.
 
 **Throughput**. Training GPT-3 (175B parameters) to convergence required roughly
-3.14 × 10²³ floating point operations. A single H100 at peak bf16 throughput
-(~1,979 TFLOPS effective) would take about 50 years. The only option is
-distributing across many GPUs.
+3.14 × 10²³ floating point operations. An H100's dense bf16 peak is ~989 TFLOPS,
+and real training workloads sustain 35–45% of peak (the rest is lost to memory
+stalls, communication, and kernel overheads) — call it ~400 TFLOPS of useful
+throughput. At that rate a single H100 would take about 25 years. The only
+option is distributing across many GPUs.
 
 ---
 

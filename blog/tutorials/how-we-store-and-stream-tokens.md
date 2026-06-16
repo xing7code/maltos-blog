@@ -2,7 +2,7 @@
 layout: post
 title: "How We Store and Stream Tokens"
 description: Pretraining data is not a labeled dataset. It's a stream of billions of tokens that must be stored efficiently, loaded without overhead, and resumed exactly after a checkpoint. This article covers the full data pipeline.
-category: Tutorial · Part 2 of 5
+category: Pretraining Concepts · Part 2 of 8
 date: 2026-06-11
 read_time: 10 min read
 ---
@@ -79,8 +79,13 @@ hex editor, and concatenate trivially.
 ## Memory-Mapped Access
 
 Loading a 400 MB shard into RAM at the start of training would be wasteful and
-slow. The better approach is `numpy.memmap`, which maps the file into the
-process's virtual address space without reading it upfront:
+slow. The better approach is `numpy.memmap`, which uses the OS's virtual memory
+system to make the file look like a NumPy array without reading it upfront.
+Concretely: the OS maps the file's disk pages into the process's address space.
+No bytes are read immediately. When your code accesses `shard[i]`, the CPU
+generates a page fault (the page is not yet in RAM), and the OS fetches only the
+4 KB disk page containing index `i`. Subsequent accesses to nearby indices hit the
+cache. This is called **demand paging**:
 
 ```python
 import numpy as np
@@ -88,8 +93,7 @@ import numpy as np
 shard = np.memmap(path, mode="r", dtype=np.uint32)
 ```
 
-Accessing `shard[i]` triggers an OS page fault that loads only the 4 KB page
-containing index `i`. The OS caches recently-used pages in RAM automatically.
+The OS caches recently-used pages in RAM automatically.
 For sequential access (which pretraining mostly is), the OS prefetcher keeps
 the next pages warm, and reads are nearly as fast as reading from RAM.
 
@@ -193,7 +197,7 @@ class PretrainingDataLoader:
 
     def next_batch(self):
         samples = []
-        for _ in range(micro_batch_size):
+        for _ in range(self.micro_batch_size):
             sample, self.shard_idx, self.token_offset = self.dataset.read(
                 self.shard_idx, self.token_offset, self.seq_len + 1
             )
@@ -210,8 +214,20 @@ class PretrainingDataLoader:
             )
 ```
 
-After reading its own sample, each rank advances past the samples belonging to
-the other DP ranks, positioning itself at its next window.
+After reading its own sample, each rank calls `_advance_to_next_dp_sample()` to
+skip over the tokens that belong to the other DP ranks. Those tokens are not
+returned — they are read and immediately discarded. The purpose is solely
+to advance the file cursor: after skipping `(dp_world_size - 1) * (seq_len + 1)`
+tokens, the cursor is positioned at the start of this rank's *next* sample.
+
+Strictly, the skip doesn't need to touch the data at all — the new
+`(shard_idx, token_offset)` can be computed arithmetically by walking the table
+of shard sizes. MALTOS reuses `read()` for the skip because it keeps the
+boundary-crossing and wrap-around logic in one place, and the cost is small:
+memmap reads of skipped pages are usually already warm in the OS page cache
+from a neighboring rank's read of the same region (on a shared filesystem) or
+prefetched sequentially. If profiling ever showed the skip reads mattered, the
+arithmetic version is a drop-in replacement.
 
 This partitioning has a useful property: **all DP ranks together cover the full
 token stream without gaps or overlaps**. Across all ranks, every token in the
@@ -344,10 +360,12 @@ def write_shard(token_ids: list[int], path: str) -> None:
     arr.tofile(path)
 ```
 
-Token IDs fit in `uint16` for vocabularies up to 65,535, but `uint32` handles
-all current LLaMA/GPT tokenizers (vocabularies of 32k–128k) without overflow.
-The storage cost is 4 bytes per token — 400 MB for 100M tokens — which is
-acceptable given the access pattern.
+Token IDs fit in `uint16` for vocabularies up to 65,535 — which covers 32k
+(LLaMA-2) and 50k (GPT-2) tokenizers and halves the storage. Newer tokenizers
+with 128k vocabularies (LLaMA-3, GPT-4-class) overflow `uint16`, so `uint32`
+is the safe default. The cost is 4 bytes per token — 400 MB for 100M tokens —
+which is acceptable given the access pattern; if your vocabulary fits and
+storage matters, use `uint16`.
 
 **How large should shards be?** 100M tokens (~400 MB) is a practical default.
 Too small (< 10M tokens) means many file opens and memmap registrations.

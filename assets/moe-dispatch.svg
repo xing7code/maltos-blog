@@ -1,0 +1,104 @@
+<svg viewBox="0 0 760 280" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="280" fill="#fff"/>
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#5f625f"/>
+    </marker>
+    <marker id="arr-t" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="380" y="18" text-anchor="middle" font-size="13" font-weight="700" fill="#141414">Expert Parallelism: All-to-All Token Dispatch (4 ranks, 8 experts)</text>
+
+  <!-- ── LEFT: Tokens before dispatch ── -->
+  <text x="88" y="36" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">Before dispatch</text>
+  <text x="88" y="48" text-anchor="middle" font-size="10" fill="#5f625f">tokens on origin rank</text>
+
+  <!-- rank 0 tokens -->
+  <rect x="16" y="56" width="144" height="34" rx="4" fill="#0f766e"/>
+  <text x="88" y="71" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 0</text>
+  <text x="88" y="83" text-anchor="middle" font-size="10" fill="#aee0db">[t₀ t₁ t₂ t₃ t₄ t₅]</text>
+
+  <!-- rank 1 tokens -->
+  <rect x="16" y="100" width="144" height="34" rx="4" fill="#0b4f4a"/>
+  <text x="88" y="115" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 1</text>
+  <text x="88" y="127" text-anchor="middle" font-size="10" fill="#8ecec7">[t₆ t₇ t₈ t₉ t₁₀ t₁₁]</text>
+
+  <!-- rank 2 tokens -->
+  <rect x="16" y="144" width="144" height="34" rx="4" fill="#0f766e" opacity="0.75"/>
+  <text x="88" y="159" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 2</text>
+  <text x="88" y="171" text-anchor="middle" font-size="10" fill="#aee0db">[t₁₂ t₁₃ t₁₄ t₁₅ …]</text>
+
+  <!-- rank 3 tokens -->
+  <rect x="16" y="188" width="144" height="34" rx="4" fill="#0b4f4a" opacity="0.75"/>
+  <text x="88" y="203" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 3</text>
+  <text x="88" y="215" text-anchor="middle" font-size="10" fill="#8ecec7">[t₁₆ t₁₇ t₁₈ t₁₉ …]</text>
+
+  <!-- ── MIDDLE: Router + all-to-all ── -->
+  <!-- Router label -->
+  <text x="290" y="36" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">Router assigns expert</text>
+  <text x="290" y="48" text-anchor="middle" font-size="10" fill="#5f625f">then all-to-all dispatch</text>
+
+  <!-- all-to-all box -->
+  <rect x="228" y="56" width="124" height="170" rx="6" fill="#f7f7f4" stroke="#0f766e" stroke-width="2"/>
+  <text x="290" y="80" text-anchor="middle" font-size="11" font-weight="700" fill="#0f766e">all-to-all</text>
+
+  <!-- crossing arrows inside the box to show redistribution -->
+  <!-- straight arrows (same rank) -->
+  <line x1="228" y1="95"  x2="352" y2="95"  stroke="#0f766e" stroke-width="1.2" marker-end="url(#arr-t)"/>
+  <!-- crossing arrows -->
+  <line x1="228" y1="115" x2="352" y2="175" stroke="#5f625f" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="228" y1="155" x2="352" y2="115" stroke="#5f625f" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="228" y1="135" x2="352" y2="205" stroke="#c9cbc2" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="228" y1="195" x2="352" y2="135" stroke="#c9cbc2" stroke-width="1" marker-end="url(#arr)"/>
+  <line x1="228" y1="215" x2="352" y2="215" stroke="#0f766e" stroke-width="1.2" marker-end="url(#arr-t)"/>
+
+  <text x="290" y="235" text-anchor="middle" font-size="9" fill="#5f625f">tokens go to rank</text>
+  <text x="290" y="245" text-anchor="middle" font-size="9" fill="#5f625f">that holds their expert</text>
+
+  <!-- ── RIGHT: Tokens after dispatch ── -->
+  <text x="472" y="36" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">After dispatch</text>
+  <text x="472" y="48" text-anchor="middle" font-size="10" fill="#5f625f">tokens on expert rank → local compute</text>
+
+  <!-- rank 0 experts 0,1 -->
+  <rect x="380" y="56" width="184" height="34" rx="4" fill="#0f766e"/>
+  <text x="472" y="68" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Rank 0 · experts 0, 1</text>
+  <text x="472" y="82" text-anchor="middle" font-size="10" fill="#aee0db">receives tokens routed to exp 0 or 1 from all ranks</text>
+
+  <!-- rank 1 experts 2,3 -->
+  <rect x="380" y="100" width="184" height="34" rx="4" fill="#0b4f4a"/>
+  <text x="472" y="112" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Rank 1 · experts 2, 3</text>
+  <text x="472" y="126" text-anchor="middle" font-size="10" fill="#8ecec7">receives tokens routed to exp 2 or 3</text>
+
+  <!-- rank 2 experts 4,5 -->
+  <rect x="380" y="144" width="184" height="34" rx="4" fill="#0f766e" opacity="0.75"/>
+  <text x="472" y="156" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Rank 2 · experts 4, 5</text>
+  <text x="472" y="170" text-anchor="middle" font-size="10" fill="#aee0db">receives tokens routed to exp 4 or 5</text>
+
+  <!-- rank 3 experts 6,7 -->
+  <rect x="380" y="188" width="184" height="34" rx="4" fill="#0b4f4a" opacity="0.75"/>
+  <text x="472" y="200" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">Rank 3 · experts 6, 7</text>
+  <text x="472" y="214" text-anchor="middle" font-size="10" fill="#8ecec7">receives tokens routed to exp 6 or 7</text>
+
+  <!-- ── RETURN all-to-all ── -->
+  <text x="660" y="36" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">Return pass</text>
+  <text x="660" y="48" text-anchor="middle" font-size="10" fill="#5f625f">results → origin ranks</text>
+
+  <rect x="584" y="56" width="160" height="170" rx="6" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1.5"/>
+  <text x="664" y="80" text-anchor="middle" font-size="11" font-weight="700" fill="#5f625f">all-to-all</text>
+  <text x="664" y="94" text-anchor="middle" font-size="10" fill="#5f625f">inverse routing</text>
+  <text x="664" y="108" text-anchor="middle" font-size="10" fill="#5f625f">results go back</text>
+  <text x="664" y="122" text-anchor="middle" font-size="10" fill="#5f625f">to origin rank</text>
+  <line x1="584" y1="145" x2="744" y2="145" stroke="#c9cbc2" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+  <text x="664" y="162" text-anchor="middle" font-size="10" fill="#5f625f">same comm volume</text>
+  <text x="664" y="174" text-anchor="middle" font-size="10" fill="#5f625f">as dispatch</text>
+  <text x="664" y="192" text-anchor="middle" font-size="10" fill="#5f625f">2 × (tokens × d</text>
+  <text x="664" y="204" text-anchor="middle" font-size="10" fill="#5f625f">  × bytes) total</text>
+
+  <!-- comm note -->
+  <rect x="16" y="240" width="728" height="30" rx="4" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="380" y="253" text-anchor="middle" font-size="10" fill="#141414">Two all-to-all calls per MoE layer per forward+backward.  Expert gradients → EREP group.  Shared param gradients → DP group.</text>
+  <text x="380" y="265" text-anchor="middle" font-size="9" fill="#5f625f">Communication volume is independent of number of experts — only depends on token count and hidden dimension.</text>
+</svg>

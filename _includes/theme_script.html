@@ -1,0 +1,51 @@
+<script>
+  (function () {
+    var key = "maltos-theme";
+    var root = document.documentElement;
+    function preferredTheme() {
+      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+    function currentTheme() {
+      return root.getAttribute("data-theme") || preferredTheme();
+    }
+    function applyTheme(theme) {
+      root.setAttribute("data-theme", theme);
+      try { localStorage.setItem(key, theme); } catch (e) {}
+    }
+    try {
+      var saved = localStorage.getItem(key);
+      root.setAttribute("data-theme", saved === "dark" || saved === "light" ? saved : preferredTheme());
+    } catch (e) {
+      root.setAttribute("data-theme", preferredTheme());
+    }
+    document.addEventListener("DOMContentLoaded", function () {
+      var nav = document.querySelector(".nav-links");
+      if (!nav || nav.querySelector(".theme-toggle")) return;
+      var btn = document.createElement("button");
+      var icon = document.createElement("span");
+      var label = document.createElement("span");
+      btn.className = "theme-toggle";
+      btn.type = "button";
+      btn.setAttribute("aria-live", "polite");
+      icon.className = "theme-toggle-icon";
+      label.className = "theme-toggle-label";
+      btn.appendChild(icon);
+      btn.appendChild(label);
+      function sync() {
+        var dark = currentTheme() === "dark";
+        icon.textContent = dark ? "☀" : "☾";
+        label.textContent = dark ? "Light" : "Dark";
+        btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
+        btn.title = dark ? "Switch to light theme" : "Switch to dark theme";
+      }
+      btn.addEventListener("click", function () {
+        applyTheme(currentTheme() === "dark" ? "light" : "dark");
+        sync();
+      });
+      sync();
+      nav.appendChild(btn);
+    });
+  })();
+</script>

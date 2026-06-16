@@ -1,8 +1,8 @@
 ---
 layout: post
 title: "Why Composable Parallelism Is Hard"
-description: Distributed training has six parallelism dimensions. Making them compose without rewriting the trainer every time requires explicit interaction protocols. This post walks through the five surfaces where strategies interact and how MALTOS handles each one.
-category: Deep Dive · Part 1 of 4
+description: Parallelism strategies do not naturally compose. What composes is a protocol around model transformation, gradient reduction, optimizer ownership, checkpoint layout, and metric semantics. This post is about those five surfaces.
+category: Deep Dive
 date: 2026-06-11
 read_time: 15 min read
 ---
@@ -11,23 +11,26 @@ read_time: 15 min read
 
 The hardest part of building a distributed training system is not implementing
 any individual strategy. Data parallelism, tensor parallelism, pipeline
-parallelism—each has well-documented algorithms and known communication patterns.
-The hard part is composing them.
+parallelism, ZeRO, context parallelism, expert parallelism: each one has a
+paper, a diagram, and a fairly crisp local story. The hard part is making them
+coexist inside one runtime without turning the trainer into a pile of strategy
+branches.
 
-When you add a second parallelism strategy to a working training loop, you don't
-usually get two strategies running independently. You get them fighting over
-shared resources. Adding ZeRO to a DDP loop means the DDP reducer has to change.
-Adding tensor parallelism means the optimizer has to be aware of parameter
-sharding. Adding context parallelism means the gradient reducer needs extra work
-after each bucket. Adding pipeline parallelism means the step runner itself needs
-to change.
+When you add a second parallelism strategy to a working training loop, you do
+not usually get two independent features. You get two claims on the same
+surface. Adding ZeRO to DDP changes who owns gradients. Adding tensor
+parallelism changes which parameters even exist. Adding context parallelism
+changes what "gradient reduction complete" means. Adding pipeline parallelism
+changes what a step is.
 
 Each new strategy is a cross-cutting concern. Without explicit interaction
-boundaries, every strategy edit ripples into every other strategy.
+boundaries, every new feature drags edits into every other one.
 
-I ran into this directly while building MALTOS. This post explains the five
-surfaces where parallelism strategies interact, the mistakes that arise if you
-ignore them, and the design decisions that keep strategies composable.
+The conclusion I ended up with in MALTOS is simple: parallelism strategies do
+not compose by default. What composes is a protocol. This post is about that
+protocol: the five surfaces where strategies interact, the failure modes on each
+surface, and the runtime rules that keep the system from collapsing into
+feature-specific trainer code.
 
 ---
 
@@ -53,9 +56,10 @@ more of these surfaces:
 - **Metrics**: token counts, loss values, and throughput numbers all have
   distributed semantics that depend on the active topology
 
-Each surface is a potential coupling point. If a strategy embeds its logic
-directly in the training loop at one of these surfaces, adding a second strategy
-often requires modifying the first.
+These are not just implementation categories. They are the places where
+distributed semantics leak. If a strategy embeds its own logic directly into the
+trainer at one of these surfaces, the next strategy usually has to patch around
+it.
 
 ## The Naive Approach and Where It Breaks
 
@@ -82,14 +86,21 @@ if using_pp:
 ```
 
 This works for the first strategy. With two strategies it produces an O(N²)
-branch structure. With three it becomes unmaintainable, and the fourth strategy
-forces changes across five separate places in the training loop.
+branch structure. With three it becomes the real architecture. At that point the
+trainer is no longer a trainer. It is a hidden compatibility layer for every
+strategy combination you have ever added.
 
 The problem is that each strategy affects multiple phases of training, and the
 same phase is affected by multiple strategies. A conditional-per-strategy
 approach puts strategy logic next to the code it affects, but creates invisible
 dependencies between strategies: changing how ZeRO reduces gradients can break
 CP's assumption about when its post-reduction sync runs.
+
+Another problem is that local feature tests give false confidence here. TP may
+work by itself. ZeRO may work by itself. CP may work by itself. But the
+cross-feature bug lives in the interaction surface, not in either feature's
+standalone implementation. That is one reason composition bugs survive so long:
+the individual parts each look correct under isolated testing.
 
 ## The Phase Model
 
@@ -110,19 +121,20 @@ POST_LOAD
 ```
 
 Every plugin is notified at each phase and decides what to do. The trainer does
-not know what each plugin does at each phase. It just runs phases.
+not know what each plugin does. It only knows that these are the only legal
+coordination points.
 
 The phases are not arbitrary. Each one corresponds to a concrete coordination
 need that distributed training requires:
 
 | Phase | Why it exists |
 |---|---|
-| `SETUP` | create process groups, move model to device |
+| `SETUP` | plugin-local setup such as grad scaler init and runtime scratch state |
 | `TRANSFORM_MODEL` | model must be in final form before optimizer is built |
 | `PRE_BACKWARD` | ZeRO3 resets grad buffers; PP resets microbatch state |
 | `POST_BACKWARD` | DDP/ZeRO synchronize gradients |
 | `PRE_STEP` | gradient clipping, after gradients are in their final reduced form |
-| `POST_STEP` | ZeRO3 reshards parameters; profiler records step timing |
+| `POST_STEP` | ZeRO3 reshards parameters; metrics/profiling can observe the completed step |
 | `POST_LOAD` | ZeRO3 reshards after loading a checkpoint |
 
 The trainer loop is agnostic to which plugins are registered:
@@ -241,7 +253,7 @@ classes of bugs:
 
 Neither of these bugs is detectable without explicit ordering enforcement.
 
-## Surface 3: Optimizer Ownership
+## Surface 2: Optimizer Ownership
 
 Optimizer ownership is the interaction surface most likely to fail silently.
 
@@ -288,7 +300,7 @@ pre-transform parameters. After TP runs, those parameters are replaced by shard
 variants with different shapes. The optimizer and the model would be tracking
 different objects.
 
-## Surface 2: Gradient Synchronization and the Callback Interface
+## Surface 3: Gradient Synchronization and the Callback Interface
 
 DDP and ZeRO are the primary gradient reducers. They own the synchronization
 mechanism: when a gradient is ready, they reduce it across the appropriate
@@ -427,12 +439,10 @@ DP ranks each hold a distinct data shard, so their token counts add up. TP, PP,
 and CP ranks replicate the same data at the model level, so their contributions
 must be divided out.
 
-The same applies to loss. Under DDP, the standard approach is to divide the loss
-by `grad_accum_steps` inside the accumulation loop and aggregate with a simple
-mean. Under ZeRO3, each DP rank's loss corresponds to a distinct data shard, so
-the mean across DP ranks is the global loss. Under PP, loss is computed
-per-stage; aggregating a meaningful scalar requires an extra reduce across PP
-ranks.
+The same applies to loss. Under DDP or ZeRO, each DP rank sees a distinct data
+shard, so the reported loss already has the expected data-parallel semantics.
+Under PP, the tail stage computes the scalar loss and the PP plugin broadcasts
+the microbatch-averaged value across the PP group before metrics are collected.
 
 The runtime collects metrics via plugin callbacks and applies topology-aware
 correction before logging. Plugins that emit metrics declare them without
@@ -446,11 +456,12 @@ needing to know the full topology:
 ## What Doesn't Compose Cleanly
 
 The phase and plugin model handles most interactions without coupling. Some cases
-are still awkward.
+are still awkward, and those awkward cases are revealing because they show where
+the abstraction is still too weak.
 
 **ZeRO3 and pipeline parallelism share step state**. PP has multiple microbatches
 in flight simultaneously. ZeRO3 materializes parameters per-module and frees them
-immediately after use. With PP's interleaved schedule, the same module may be
+immediately after use. With PP schedules, the same module may be
 needed by multiple concurrent microbatches. ZeRO3 handles this by maintaining a
 separate `_BucketExecState` per PP microbatch:
 
@@ -466,20 +477,15 @@ manages state accordingly — but it is visible cross-plugin state. A more compl
 abstraction would hide microbatch count behind a runtime-owned scheduling
 primitive rather than exposing it as a config field.
 
-**Async communication across plugins**. Bucketed DDP and ZeRO3 can overlap
-communication with computation within their own gradient reduction. Composing
-that overlap across strategies is harder: the scheduler needs to know which
-communications are in flight from which plugins and whether they can be safely
-interleaved. The current callback mechanism is synchronous at the plugin boundary
-— the runtime waits for each callback's async work before `PRE_STEP` — which
-limits the potential overlap.
-
-**Loss aggregation under pipeline parallelism**. The current metric path collects
-loss from `self.state.loss`, which under PP is the stage-local loss from the
-final microbatch. A training plot that tracks global loss correctly under PP
-requires an explicit all-reduce over PP ranks in the metric collection path. This
-is not yet implemented, which means loss values reported during PP runs represent
-the tail stage only.
+**Async overlap across plugin boundaries is still conservative.** Bucketed DDP
+and ZeRO-3 each overlap communication with computation *within* their own
+gradient reduction. Composing overlap *across* strategies is harder: a real
+communication scheduler would need to know which transfers are in flight from
+which plugins and whether they can safely interleave on the available streams.
+The current callback mechanism is deliberately simpler — reducers hand
+post-reduction work to CP/EP as async handles, but the runtime waits on all of
+them before `PRE_STEP`. That is correct and composable; it is not yet a
+communication scheduler.
 
 ## A Concrete Walk-Through: TP + ZeRO-3 on 4 GPUs
 
@@ -498,15 +504,19 @@ that holds a `[2048, 4096]` weight (half the columns). The replacement is regist
 
 Then `Zero3Plugin.transform_model()` runs. It expands its `wrap_cls` to include
 `ColumnParallelLinear` (via the registration), so it wraps the already-sharded
-`ColumnParallelLinear` modules. Each module's `[2048, 4096]` weight is further
-sharded across the DP axis: each DP rank holds `[2048, 4096] / dp_world_size = [2048, 2048]`.
+`ColumnParallelLinear` modules. The further sharding is *not* a 2D slice: ZeRO-3
+flattens each module's parameters into a 1D bucket buffer (here
+2048 × 4096 ≈ 8.4M elements) and each DP rank keeps a contiguous 1D shard of
+~4.2M elements. The checkpoint manifest reflects this — `physical_shape` for a
+ZeRO-3 entry is one-dimensional, with `shard_offset`/`shard_numel` locating it
+inside the flat buffer.
 
-The optimizer is built inside `Zero3Plugin.transform_model()` with the
-`[2048, 2048]` local param shards as inputs.
+The optimizer is built inside `Zero3Plugin.transform_model()` with these 1D
+local param shards as inputs.
 
 After setup, GPU 0 holds:
-- Weight params: slices of the original columns, further sliced by ZeRO-3
-- Adam m/v: matching the ZeRO-3 param shape
+- Weight params: a TP column slice, flattened and further sliced 1D by ZeRO-3
+- Adam m/v: matching the 1D ZeRO-3 shard shape
 
 **Surface 2 — Gradient synchronization** (backward pass):
 
@@ -523,33 +533,38 @@ post-grad-reduction callback interface.
 
 **Surface 3 — Optimizer ownership** (PRE_STEP):
 
-The ZeRO-3 plugin owns the optimizer. At `PRE_STEP`, `Zero3Plugin.on_phase()` waits
-for all reduce-scatter handles, then clips grad norms (using the global norm computed
-across both DP and TP axes), then calls `self.optimizer.step()` on the
-`[2048, 2048]` local param shards. The runtime's optimizer is `None`; it skips
-its own step.
+The ZeRO-3 plugin owns the optimizer. At `PRE_STEP`, `Zero3Plugin.on_phase()`
+waits for all reduce-scatter handles; the `GradClipPlugin` (if configured)
+clips gradients at the same phase. The runtime then steps the plugin-built
+optimizer through its single shared step path — `get_optimizer_and_scheduler()`
+resolves to ZeRO-3's optimizer over the 1D shard parameters. Ownership decides
+*which* optimizer steps, not *who* calls `.step()`.
 
 **Surface 4 — Checkpoint layout** (PRE_SAVE):
 
-Each rank writes its `[2048, 2048]` param shard to `model_rank_N.pt`. The
+Each rank writes its 1D param shard to `model_rank_N.pt`. The
 `TensorParallelPlugin.annotate_checkpoint_state()` records that this shard came
 from a TP split at axis 0 (column parallel). The `Zero3Plugin.annotate_checkpoint_state()`
 records the DP shard offset and extent.
 
-Rank 0 writes the manifest: `world_size=4`, `optimizer_source_ranks=[0, 0, 2, 2]`
-(rank 0's optimizer covers its own params; rank 1 loads from rank 0; rank 2 and 3
-are analogous). A future tool could use the manifest's double-layered annotations
-to reconstruct the full `[4096, 4096]` weight matrix.
+Rank 0 writes the manifest: `world_size=4`, `optimizer_source_ranks=[0, 1, 2, 3]`
+— under ZeRO-3 every rank's optimizer state covers exactly its own shards, so
+every rank is its own source. (A replicated-optimizer configuration like plain
+DDP+TP would instead map DP peers to a shared source.) A future tool could use
+the manifest's double-layered annotations to reconstruct the full
+`[4096, 4096]` weight matrix.
 
 **Surface 5 — Metrics** (POST_STEP):
 
-Each rank reports `batch_tokens = input_ids.numel()`. But TP ranks 0 and 1 saw
-the same batch. The global token count is `batch_tokens × dp_world_size` (not ×
-`tp_world_size`). The runtime applies the correction:
-`global_tokens = local_tokens / (tp × pp × cp) × dp`.
+Each rank reports `batch_tokens = input_ids.numel()`. But TP, PP, and CP ranks
+may be observing replicated views of the same logical tokens. The runtime fixes
+this by dividing out the replicated mesh axes before logging the token
+contribution, rather than treating every rank-local count as globally distinct.
 
-The loss is already DDP-equivalent (the DP all-reduce of ZeRO averages the per-rank
-losses implicitly through the reduce-scatter). No additional loss correction is needed.
+The loss scalar is collected separately from the gradient path. For TP, the
+runtime divides out replicated axes in token accounting; for PP, the PP plugin
+broadcasts the final loss scalar to the full PP group before metrics are
+collected.
 
 ---
 
@@ -573,18 +588,20 @@ The parameters the hooks try to materialize are not the ones the forward pass us
 You get either a crash on the first step (if the shapes don't accidentally match) or,
 worse, a silent wrong update (if they do).
 
-The topological sort catches this at `setup()` time regardless of registration order:
+The topological sort fixes this regardless of registration order:
 
 ```python
 plugins = [Zero3Plugin(), TensorParallelPlugin()]  # wrong order
 runtime = RuntimeCore(plugins=plugins)
 runtime.setup()
-# → raises ValueError: circular dependency or unsatisfiable ordering constraint
+# → TP is executed before ZeRO-3 because of the declared dependency
 ```
 
 The `Zero3Plugin` declares `runs_after={PluginId.TP}`. If TP is in the config,
 the sorter places TP before ZeRO-3, regardless of how the list was constructed.
-If there's a cycle (e.g., A runs_after B and B runs_after A), the sorter raises.
+The failure mode that raises is different: if two plugins declare an
+unsatisfiable cycle, `static_order()` fails during setup instead of letting the
+runtime execute in an ambiguous order.
 
 ---
 
@@ -624,18 +641,46 @@ abstraction.
 
 ---
 
-## Experiment Placeholder
+## What This Abstraction Buys Me
 
-> **[Placeholder: Phase overhead profiling]**
-> An interesting measurement: how much wall-clock time does the phase dispatch
-> system add per step? At step granularity, the overhead is `N_plugins × N_phases`
-> Python function calls per step. For a small model on fast hardware, this could be
-> a non-trivial fraction of step time. Profile with `torch.profiler` on a fast GPU
-> (H100 or A100) with a small model to measure if phase dispatch is a bottleneck.
-> Expected: negligible for models that are compute-bound; potentially visible for
-> small models on fast hardware.
+For MALTOS, this abstraction has already paid for itself in two ways.
+
+First, I was able to add CP, PP, and EP without rewriting the trainer loop.
+Those features still required real interaction work — especially around
+checkpoint semantics and gradient synchronization — but the integration surface
+was runtime-owned rather than trainer-owned.
+
+Second, it made the test strategy legible. The matrix tests are organized around
+composed runtime behaviors rather than around trainer variants. That is exactly
+what I want from the abstraction: if a new strategy requires a brand-new trainer
+test harness, the composition boundary is probably in the wrong place.
 
 ---
+
+## Where This Sits Relative to DTensor
+
+A fair question from anyone watching the PyTorch ecosystem: isn't tensor-level
+composition — DTensor placements propagating through operations, DeviceMesh as
+the topology object, FSDP2 and TorchTitan building on both — the more principled
+substrate than a phase-and-plugin protocol?
+
+For the *sharding propagation* problem, probably yes. DTensor answers "what
+happens when a `Shard(0)` tensor meets a `Replicate()` tensor in a matmul" once,
+at the tensor library level, instead of every strategy answering it separately.
+That subsumes a real part of what TP/SP plugins do by hand here.
+
+But notice which of the five surfaces that covers: mostly surface 1 (model
+transformation) and part of surface 3 (where reductions are implied by
+placements). Optimizer ownership, checkpoint manifests and source-rank mapping,
+metric semantics, schedule-level execution (PP's step runner), and the
+*ordering* of cross-cutting setup are not tensor-level problems — systems built
+on DTensor still need an orchestration layer that answers them, and that layer
+ends up looking like phases and ownership rules whatever you call it. The
+honest comparison is: DTensor would shrink MALTOS's plugin implementations, not
+eliminate the protocol between them. I chose explicit plugins partly for
+pedagogy — the communication is visible rather than implied by placement
+algebra — and partly because the protocol surfaces are the part I wanted to
+study.
 
 ## The Design Commitment
 
@@ -657,9 +702,9 @@ things at arbitrary times. A plugin that wants to modify gradients outside
 intentional: it keeps strategies from coupling to each other in unpredictable
 ways.
 
-Whether this abstraction holds at the scale of a production pretraining system
-is still an open question. The framework currently handles all standard
-parallelism combinations on small models. The GPU experiments planned for the
-next phase will be the real test — not just of the training quality, but of
-whether the composability holds under the full combination of parallelism
-strategies on a model large enough to stress the communication patterns.
+Whether this abstraction holds at very large scale is still an open question.
+What I am confident about now is the smaller but more important claim: once the
+interaction surfaces are explicit, composition bugs stop looking like "random
+distributed instability" and start looking like concrete protocol violations.
+That is the difference between a runtime you can extend and a runtime you are
+afraid to touch.

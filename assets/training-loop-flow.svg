@@ -1,0 +1,100 @@
+<svg viewBox="0 0 760 296" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="296" fill="#fff"/>
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#5f625f"/>
+    </marker>
+    <marker id="arr-teal" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <!-- outer loop box -->
+  <rect x="12" y="12" width="736" height="240" rx="6" fill="none" stroke="#c9cbc2" stroke-width="1.5"/>
+  <text x="26" y="28" font-size="11" fill="#5f625f">for step in range(max_steps):</text>
+
+  <!-- gradient accumulation loop box -->
+  <rect x="28" y="34" width="540" height="148" rx="5" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="44" y="50" font-size="11" fill="#5f625f">for micro_step in range(grad_accum_steps):</text>
+
+  <!-- autocast box -->
+  <rect x="44" y="56" width="508" height="114" rx="4" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="58" y="72" font-size="10" fill="#5f625f">with torch.autocast(dtype=bfloat16):</text>
+
+  <!-- forward box -->
+  <rect x="60" y="80" width="130" height="36" rx="4" fill="#0f766e"/>
+  <text x="125" y="99" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">Forward pass</text>
+  <text x="125" y="112" text-anchor="middle" font-size="10" fill="#aee0db">matmuls in bf16</text>
+
+  <!-- arrow forward → loss -->
+  <line x1="190" y1="98" x2="232" y2="98" stroke="#5f625f" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="210" y="91" text-anchor="middle" font-size="10" fill="#5f625f">loss / G</text>
+
+  <!-- loss backward box -->
+  <rect x="234" y="80" width="140" height="36" rx="4" fill="#0b4f4a"/>
+  <text x="304" y="99" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">loss.backward()</text>
+  <text x="304" y="112" text-anchor="middle" font-size="10" fill="#8ecec7">grads accumulate</text>
+
+  <!-- bfloat16 note -->
+  <text x="424" y="92" font-size="10" fill="#5f625f">layer norm, softmax,</text>
+  <text x="424" y="107" font-size="10" fill="#5f625f">loss: stay fp32</text>
+  <line x1="420" y1="98" x2="376" y2="98" stroke="#c9cbc2" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+  <!-- step separator line -->
+  <line x1="28" y1="192" x2="568" y2="192" stroke="#c9cbc2" stroke-width="1" stroke-dasharray="4,3"/>
+
+  <!-- clip box -->
+  <rect x="44" y="202" width="116" height="32" rx="4" fill="#f7f7f4" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="102" y="218" text-anchor="middle" font-size="11" fill="#141414">clip_grad_norm_</text>
+  <text x="102" y="229" text-anchor="middle" font-size="10" fill="#5f625f">max_norm=1.0</text>
+
+  <!-- arrow -->
+  <line x1="160" y1="218" x2="180" y2="218" stroke="#5f625f" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- optimizer step box -->
+  <rect x="182" y="202" width="116" height="32" rx="4" fill="#f7f7f4" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="240" y="218" text-anchor="middle" font-size="11" fill="#141414">optimizer.step()</text>
+  <text x="240" y="229" text-anchor="middle" font-size="10" fill="#5f625f">Adam m, v update</text>
+
+  <!-- arrow -->
+  <line x1="298" y1="218" x2="318" y2="218" stroke="#5f625f" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- scheduler step box -->
+  <rect x="320" y="202" width="116" height="32" rx="4" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1.5"/>
+  <text x="378" y="218" text-anchor="middle" font-size="11" fill="#141414">scheduler.step()</text>
+  <text x="378" y="229" text-anchor="middle" font-size="10" fill="#5f625f">LR schedule</text>
+
+  <!-- arrow -->
+  <line x1="436" y1="218" x2="456" y2="218" stroke="#5f625f" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- zero_grad box -->
+  <rect x="458" y="202" width="100" height="32" rx="4" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1.5"/>
+  <text x="508" y="218" text-anchor="middle" font-size="11" fill="#141414">zero_grad()</text>
+  <text x="508" y="229" text-anchor="middle" font-size="10" fill="#5f625f">next step</text>
+
+  <!-- checkpoint box (right side) -->
+  <rect x="590" y="34" width="142" height="148" rx="5" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="661" y="54" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">Checkpoint</text>
+  <text x="661" y="68" text-anchor="middle" font-size="10" fill="#5f625f">every K steps</text>
+
+  <text x="610" y="94" font-size="10" fill="#5f625f">· model weights</text>
+  <text x="610" y="109" font-size="10" fill="#5f625f">· optimizer state</text>
+  <text x="610" y="124" font-size="10" fill="#5f625f">· scheduler state</text>
+  <text x="610" y="139" font-size="10" fill="#5f625f">· data cursor</text>
+  <text x="610" y="154" font-size="10" fill="#5f625f">· RNG state</text>
+
+  <line x1="568" y1="218" x2="590" y2="108" stroke="#c9cbc2" stroke-width="1" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+
+  <!-- metrics strip -->
+  <text x="26" y="265" font-size="10" fill="#5f625f">Logged every log_every steps:</text>
+  <rect x="175" y="255" width="66" height="18" rx="3" fill="#eceee7"/>
+  <text x="208" y="268" text-anchor="middle" font-size="10" fill="#141414">loss</text>
+  <rect x="245" y="255" width="66" height="18" rx="3" fill="#eceee7"/>
+  <text x="278" y="268" text-anchor="middle" font-size="10" fill="#141414">grad norm</text>
+  <rect x="315" y="255" width="66" height="18" rx="3" fill="#eceee7"/>
+  <text x="348" y="268" text-anchor="middle" font-size="10" fill="#141414">tok/sec</text>
+  <rect x="385" y="255" width="66" height="18" rx="3" fill="#eceee7"/>
+  <text x="418" y="268" text-anchor="middle" font-size="10" fill="#141414">lr</text>
+  <rect x="455" y="255" width="66" height="18" rx="3" fill="#eceee7"/>
+  <text x="488" y="268" text-anchor="middle" font-size="10" fill="#141414">memory</text>
+</svg>

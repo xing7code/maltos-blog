@@ -1,0 +1,98 @@
+<svg viewBox="0 0 760 290" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="290" fill="#fff"/>
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#5f625f"/>
+    </marker>
+    <marker id="arr-r" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#c9392b"/>
+    </marker>
+    <marker id="arr-t" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <!-- ── LEFT PANEL: Naive DDP ── -->
+  <rect x="12" y="12" width="356" height="264" rx="6" fill="none" stroke="#c9cbc2" stroke-width="1.5"/>
+  <text x="190" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#141414">Naive DDP</text>
+  <text x="190" y="44" text-anchor="middle" font-size="11" fill="#5f625f">one all-reduce per parameter</text>
+
+  <!-- backward timeline bar -->
+  <rect x="28" y="56" width="324" height="20" rx="3" fill="#0b4f4a"/>
+  <text x="190" y="70" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">backward pass →</text>
+
+  <!-- individual param reduces (many small arrows going down) -->
+  <!-- Show 8 small arrows to represent per-param all-reduce -->
+  <line x1="50"  y1="76" x2="50"  y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+  <line x1="90"  y1="76" x2="90"  y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+  <line x1="130" y1="76" x2="130" y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+  <line x1="170" y1="76" x2="170" y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+  <line x1="210" y1="76" x2="210" y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+  <line x1="250" y1="76" x2="250" y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+  <line x1="290" y1="76" x2="290" y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+  <line x1="330" y1="76" x2="330" y2="106" stroke="#c9392b" stroke-width="1.2" marker-end="url(#arr-r)"/>
+
+  <text x="28"  y="120" font-size="9" fill="#c9392b">reduce</text>
+  <text x="68"  y="120" font-size="9" fill="#c9392b">reduce</text>
+  <text x="108" y="120" font-size="9" fill="#c9392b">reduce</text>
+  <text x="148" y="120" font-size="9" fill="#c9392b">reduce</text>
+  <text x="190" y="120" font-size="9" fill="#c9392b">···</text>
+  <text x="230" y="120" font-size="9" fill="#c9392b">reduce</text>
+  <text x="270" y="120" font-size="9" fill="#c9392b">reduce</text>
+  <text x="312" y="120" font-size="9" fill="#c9392b">reduce</text>
+
+  <!-- wait bar (blocked) -->
+  <rect x="28" y="130" width="324" height="20" rx="3" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="190" y="144" text-anchor="middle" font-size="10" fill="#5f625f">⏸  waiting for NCCL  ⏸</text>
+
+  <!-- cost label -->
+  <rect x="28" y="162" width="324" height="52" rx="4" fill="#fff5f5" stroke="#e5b0ab" stroke-width="1"/>
+  <text x="190" y="180" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">Cost: ~N_params all-reduce calls</text>
+  <text x="190" y="196" text-anchor="middle" font-size="10" fill="#5f625f">e.g. 7B params → billions of tiny NCCL calls</text>
+  <text x="190" y="210" text-anchor="middle" font-size="10" fill="#5f625f">backward is fully blocked during comm</text>
+
+  <!-- ── RIGHT PANEL: Bucketed DDP ── -->
+  <rect x="380" y="12" width="368" height="264" rx="6" fill="none" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="564" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#141414">Bucketed DDP</text>
+  <text x="564" y="44" text-anchor="middle" font-size="11" fill="#5f625f">async all-reduce per bucket, overlapped with backward</text>
+
+  <!-- backward timeline bar (overlapped with comms) -->
+  <rect x="396" y="56" width="336" height="20" rx="3" fill="#0b4f4a"/>
+  <text x="564" y="70" text-anchor="middle" font-size="10" font-weight="600" fill="#fff">backward pass (continues) →</text>
+
+  <!-- bucket 1 reduce (starts early, overlapped) -->
+  <rect x="396" y="82" width="80" height="18" rx="3" fill="#0f766e"/>
+  <text x="436" y="95" text-anchor="middle" font-size="10" fill="#fff">bucket 1</text>
+  <text x="436" y="107" text-anchor="middle" font-size="9" fill="#5f625f">async reduce</text>
+
+  <!-- bucket 2 reduce -->
+  <rect x="490" y="82" width="80" height="18" rx="3" fill="#0f766e"/>
+  <text x="530" y="95" text-anchor="middle" font-size="10" fill="#fff">bucket 2</text>
+  <text x="530" y="107" text-anchor="middle" font-size="9" fill="#5f625f">async reduce</text>
+
+  <!-- bucket 3 reduce -->
+  <rect x="584" y="82" width="80" height="18" rx="3" fill="#0f766e"/>
+  <text x="624" y="95" text-anchor="middle" font-size="10" fill="#fff">bucket 3</text>
+  <text x="624" y="107" text-anchor="middle" font-size="9" fill="#5f625f">async reduce</text>
+
+  <!-- bucket 4 reduce -->
+  <rect x="678" y="82" width="86" height="18" rx="3" fill="#0f766e"/>
+  <text x="721" y="95" text-anchor="middle" font-size="10" fill="#fff">bucket 4</text>
+  <text x="721" y="107" text-anchor="middle" font-size="9" fill="#5f625f">async reduce</text>
+
+  <!-- overlap indicator -->
+  <rect x="396" y="118" width="336" height="14" rx="3" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="564" y="129" text-anchor="middle" font-size="9" fill="#5f625f">← communication on separate CUDA stream, runs while backward continues →</text>
+
+  <!-- "ready" trigger explanation -->
+  <rect x="396" y="142" width="336" height="42" rx="4" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="564" y="158" text-anchor="middle" font-size="10" fill="#141414">Bucket fires when all its params have gradients ready</text>
+  <text x="564" y="172" text-anchor="middle" font-size="10" fill="#5f625f">last param in bucket → hook fires → async all-reduce starts</text>
+  <text x="564" y="182" text-anchor="middle" font-size="9" fill="#5f625f">(disabled during gradient accumulation, enabled on final micro-step)</text>
+
+  <!-- cost label -->
+  <rect x="396" y="196" width="336" height="52" rx="4" fill="#f0faf9" stroke="#a0d0cb" stroke-width="1"/>
+  <text x="564" y="214" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">Cost: ~N_buckets all-reduce calls</text>
+  <text x="564" y="230" text-anchor="middle" font-size="10" fill="#5f625f">e.g. 7B params / 25 MB buckets ≈ ~1,000 calls</text>
+  <text x="564" y="244" text-anchor="middle" font-size="10" fill="#5f625f">backward and comm overlap → higher GPU utilization</text>
+</svg>

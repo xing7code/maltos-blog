@@ -1,0 +1,89 @@
+<svg viewBox="0 0 760 300" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="300" fill="#fff"/>
+  <defs>
+    <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#5f625f"/>
+    </marker>
+    <marker id="arr-t" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 Z" fill="#0f766e"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="380" y="20" text-anchor="middle" font-size="13" font-weight="700" fill="#141414">Tensor Parallelism: Column-then-Row pattern (N=2 ranks shown)</text>
+
+  <!-- ── INPUT ── -->
+  <rect x="16" y="34" width="110" height="44" rx="4" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1.5"/>
+  <text x="71" y="54" text-anchor="middle" font-size="11" font-weight="600" fill="#141414">Input X</text>
+  <text x="71" y="68" text-anchor="middle" font-size="10" fill="#5f625f">[B, T, d]</text>
+
+  <!-- arrows to both ranks -->
+  <line x1="126" y1="56" x2="160" y2="56" stroke="#5f625f" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="142" y="50" text-anchor="middle" font-size="10" fill="#5f625f">broadcast</text>
+  <!-- X goes to rank 0 and rank 1 -->
+  <line x1="126" y1="70" x2="150" y2="100" stroke="#5f625f" stroke-width="1.2" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+  <!-- ── COLUMN PARALLEL (Rank 0 and Rank 1) ── -->
+  <text x="380" y="42" text-anchor="middle" font-size="11" font-weight="600" fill="#0f766e">ColumnParallelLinear</text>
+  <text x="380" y="54" text-anchor="middle" font-size="10" fill="#5f625f">W_A split by columns  →  each rank gets d/N output features</text>
+
+  <!-- Rank 0 col-parallel box -->
+  <rect x="162" y="60" width="170" height="50" rx="4" fill="#0f766e" opacity="0.9"/>
+  <text x="247" y="80" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 0</text>
+  <text x="247" y="94" text-anchor="middle" font-size="10" fill="#aee0db">Y₀ = X @ W_A[:,0:d/2]</text>
+  <text x="247" y="106" text-anchor="middle" font-size="9" fill="#aee0db">[B, T, d/2]</text>
+
+  <!-- Rank 1 col-parallel box -->
+  <rect x="342" y="60" width="170" height="50" rx="4" fill="#0b4f4a" opacity="0.9"/>
+  <text x="427" y="80" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 1</text>
+  <text x="427" y="94" text-anchor="middle" font-size="10" fill="#8ecec7">Y₁ = X @ W_A[:,d/2:d]</text>
+  <text x="427" y="106" text-anchor="middle" font-size="9" fill="#8ecec7">[B, T, d/2]</text>
+
+  <!-- No comm label between col and row parallel -->
+  <text x="608" y="86" text-anchor="middle" font-size="10" fill="#5f625f">no comm</text>
+  <text x="608" y="98" text-anchor="middle" font-size="10" fill="#5f625f">between layers</text>
+  <line x1="588" y1="86" x2="516" y2="86" stroke="#c9cbc2" stroke-width="1" stroke-dasharray="3,2" marker-end="url(#arr)"/>
+
+  <!-- ── ROW PARALLEL ── -->
+  <text x="380" y="130" text-anchor="middle" font-size="11" font-weight="600" fill="#0f766e">RowParallelLinear</text>
+  <text x="380" y="142" text-anchor="middle" font-size="10" fill="#5f625f">W_B split by rows  →  each rank computes partial sum, then reduce</text>
+
+  <!-- Rank 0 row-parallel box -->
+  <rect x="162" y="148" width="170" height="50" rx="4" fill="#0f766e" opacity="0.9"/>
+  <text x="247" y="168" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 0</text>
+  <text x="247" y="182" text-anchor="middle" font-size="10" fill="#aee0db">Z₀ = Y₀ @ W_B[0:d/2,:]</text>
+  <text x="247" y="194" text-anchor="middle" font-size="9" fill="#aee0db">[B, T, d]  partial</text>
+
+  <!-- Rank 1 row-parallel box -->
+  <rect x="342" y="148" width="170" height="50" rx="4" fill="#0b4f4a" opacity="0.9"/>
+  <text x="427" y="168" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 1</text>
+  <text x="427" y="182" text-anchor="middle" font-size="10" fill="#8ecec7">Z₁ = Y₁ @ W_B[d/2:d,:]</text>
+  <text x="427" y="194" text-anchor="middle" font-size="9" fill="#8ecec7">[B, T, d]  partial</text>
+
+  <!-- converge arrows to all-reduce -->
+  <line x1="332" y1="173" x2="370" y2="216" stroke="#5f625f" stroke-width="1.5" marker-end="url(#arr)"/>
+  <line x1="342" y1="173" x2="380" y2="216" stroke="#5f625f" stroke-width="1.5"/>
+
+  <!-- all-reduce box -->
+  <rect x="254" y="218" width="252" height="36" rx="4" fill="#f7f7f4" stroke="#0f766e" stroke-width="2"/>
+  <text x="380" y="234" text-anchor="middle" font-size="12" font-weight="600" fill="#0f766e">all-reduce(Z₀ + Z₁)</text>
+  <text x="380" y="247" text-anchor="middle" font-size="10" fill="#5f625f">or reduce-scatter with Sequence Parallelism</text>
+
+  <!-- output arrow -->
+  <line x1="380" y1="254" x2="380" y2="274" stroke="#5f625f" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- output box -->
+  <rect x="310" y="276" width="140" height="18" rx="4" fill="#0f766e"/>
+  <text x="380" y="289" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Output Z  [B, T, d]</text>
+
+  <!-- SP note on right -->
+  <rect x="550" y="148" width="194" height="130" rx="5" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="647" y="166" text-anchor="middle" font-size="11" font-weight="700" fill="#141414">+ Sequence Parallelism</text>
+  <text x="560" y="182" font-size="10" fill="#5f625f">SP shards activations</text>
+  <text x="560" y="196" font-size="10" fill="#5f625f">between TP layers:</text>
+  <text x="560" y="212" font-size="10" fill="#5f625f">  enter:  [B, T/N, d]</text>
+  <text x="560" y="226" font-size="10" fill="#0f766e">  all-gather → [B, T, d]</text>
+  <text x="560" y="240" font-size="10" fill="#5f625f">  TP forward</text>
+  <text x="560" y="254" font-size="10" fill="#0f766e">  reduce-scatter → [B, T/N, d]</text>
+  <text x="560" y="268" font-size="10" fill="#5f625f">  exit:  [B, T/N, d]</text>
+</svg>

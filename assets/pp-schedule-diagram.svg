@@ -1,0 +1,196 @@
+<svg viewBox="0 0 760 368" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="368" fill="#fff"/>
+
+  <!-- ── helpers ── -->
+  <defs>
+    <marker id="arr" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#5f625f"/>
+    </marker>
+  </defs>
+
+  <!-- ═══════════ AFAB SECTION ═══════════ -->
+  <text x="16" y="18" font-size="13" font-weight="700" fill="#141414">AFAB</text>
+  <text x="68" y="18" font-size="12" fill="#5f625f">All-Forward-All-Backward  ·  P=4 stages, M=6 microbatches</text>
+
+  <!-- stage labels (AFAB) -->
+  <text x="16" y="43" font-size="11" fill="#5f625f">Stage 0</text>
+  <text x="16" y="72" font-size="11" fill="#5f625f">Stage 1</text>
+  <text x="16" y="101" font-size="11" fill="#5f625f">Stage 2</text>
+  <text x="16" y="130" font-size="11" fill="#5f625f">Stage 3</text>
+
+  <!-- AFAB cells: grid_x=78, cell_w=43, cell_h=24, step=44, row_step=29 -->
+  <!-- S0: F F F F F F B B B B B B i i i -->
+  <rect x="78"   y="30" width="43" height="24" rx="3" fill="#0f766e"/><text x="99"   y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="122"  y="30" width="43" height="24" rx="3" fill="#0f766e"/><text x="143"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="166"  y="30" width="43" height="24" rx="3" fill="#0f766e"/><text x="187"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="210"  y="30" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="30" width="43" height="24" rx="3" fill="#0f766e"/><text x="275"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="298"  y="30" width="43" height="24" rx="3" fill="#0f766e"/><text x="319"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="342"  y="30" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="363"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="386"  y="30" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="407"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="430"  y="30" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="451"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="474"  y="30" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="495"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="518"  y="30" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="539"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="562"  y="30" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="583"  y="47" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="606"  y="30" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="650"  y="30" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="694"  y="30" width="43" height="24" rx="3" fill="#eceee7"/>
+
+  <!-- S1: i F F F F F F B B B B B B i i -->
+  <rect x="78"   y="59" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="122"  y="59" width="43" height="24" rx="3" fill="#0f766e"/><text x="143"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="166"  y="59" width="43" height="24" rx="3" fill="#0f766e"/><text x="187"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="210"  y="59" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="59" width="43" height="24" rx="3" fill="#0f766e"/><text x="275"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="298"  y="59" width="43" height="24" rx="3" fill="#0f766e"/><text x="319"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="342"  y="59" width="43" height="24" rx="3" fill="#0f766e"/><text x="363"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="386"  y="59" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="407"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="430"  y="59" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="451"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="474"  y="59" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="495"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="518"  y="59" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="539"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="562"  y="59" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="583"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="606"  y="59" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="627"  y="76" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="650"  y="59" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="694"  y="59" width="43" height="24" rx="3" fill="#eceee7"/>
+
+  <!-- S2: i i F F F F F F B B B B B B i -->
+  <rect x="78"   y="88" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="122"  y="88" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="166"  y="88" width="43" height="24" rx="3" fill="#0f766e"/><text x="187"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="210"  y="88" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="88" width="43" height="24" rx="3" fill="#0f766e"/><text x="275"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="298"  y="88" width="43" height="24" rx="3" fill="#0f766e"/><text x="319"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="342"  y="88" width="43" height="24" rx="3" fill="#0f766e"/><text x="363"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="386"  y="88" width="43" height="24" rx="3" fill="#0f766e"/><text x="407"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="430"  y="88" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="451"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="474"  y="88" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="495"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="518"  y="88" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="539"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="562"  y="88" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="583"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="606"  y="88" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="627"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="650"  y="88" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="671"  y="105" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="694"  y="88" width="43" height="24" rx="3" fill="#eceee7"/>
+
+  <!-- S3: i i i F F F F F F B B B B B B -->
+  <rect x="78"   y="117" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="122"  y="117" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="166"  y="117" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="210"  y="117" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="117" width="43" height="24" rx="3" fill="#0f766e"/><text x="275"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="298"  y="117" width="43" height="24" rx="3" fill="#0f766e"/><text x="319"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="342"  y="117" width="43" height="24" rx="3" fill="#0f766e"/><text x="363"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="386"  y="117" width="43" height="24" rx="3" fill="#0f766e"/><text x="407"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="430"  y="117" width="43" height="24" rx="3" fill="#0f766e"/><text x="451"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="474"  y="117" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="495"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="518"  y="117" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="539"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="562"  y="117" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="583"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="606"  y="117" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="627"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="650"  y="117" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="671"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="694"  y="117" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="715"  y="134" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+
+  <!-- AFAB annotation: peak memory bracket on S0 -->
+  <line x1="78" y1="155" x2="342" y2="155" stroke="#0f766e" stroke-width="1.5"/>
+  <line x1="78" y1="152" x2="78" y2="158" stroke="#0f766e" stroke-width="1.5"/>
+  <line x1="342" y1="152" x2="342" y2="158" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="207" y="167" text-anchor="middle" font-size="10" fill="#0f766e">M=6 activations stored simultaneously</text>
+
+  <!-- AFAB bubble annotation -->
+  <line x1="608" y1="155" x2="736" y2="155" stroke="#c9cbc2" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="672" y="167" text-anchor="middle" font-size="10" fill="#5f625f">bubble (P−1)</text>
+
+  <!-- ═══════════ 1F1B SECTION ═══════════ -->
+  <text x="16" y="196" font-size="13" font-weight="700" fill="#141414">1F1B</text>
+  <text x="60" y="196" font-size="12" fill="#5f625f">One-Forward-One-Backward  ·  same total time, lower peak memory</text>
+
+  <!-- stage labels (1F1B) -->
+  <text x="16" y="221" font-size="11" fill="#5f625f">Stage 0</text>
+  <text x="16" y="250" font-size="11" fill="#5f625f">Stage 1</text>
+  <text x="16" y="279" font-size="11" fill="#5f625f">Stage 2</text>
+  <text x="16" y="308" font-size="11" fill="#5f625f">Stage 3</text>
+
+  <!-- 1F1B cells: grid_y starts at 208 -->
+  <!-- S0: F F F F i i i B F B F B B B B -->
+  <rect x="78"   y="208" width="43" height="24" rx="3" fill="#0f766e"/><text x="99"   y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="122"  y="208" width="43" height="24" rx="3" fill="#0f766e"/><text x="143"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="166"  y="208" width="43" height="24" rx="3" fill="#0f766e"/><text x="187"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="210"  y="208" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="208" width="43" height="24" rx="3" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <rect x="298"  y="208" width="43" height="24" rx="3" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <rect x="342"  y="208" width="43" height="24" rx="3" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <rect x="386"  y="208" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="407"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="430"  y="208" width="43" height="24" rx="3" fill="#0f766e"/><text x="451"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="474"  y="208" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="495"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="518"  y="208" width="43" height="24" rx="3" fill="#0f766e"/><text x="539"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="562"  y="208" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="583"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="606"  y="208" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="627"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="650"  y="208" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="671"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="694"  y="208" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="715"  y="225" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+
+  <!-- S1: i F F F F i B F B F B B B B i -->
+  <rect x="78"   y="237" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="122"  y="237" width="43" height="24" rx="3" fill="#0f766e"/><text x="143"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="166"  y="237" width="43" height="24" rx="3" fill="#0f766e"/><text x="187"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="210"  y="237" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="237" width="43" height="24" rx="3" fill="#0f766e"/><text x="275"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="298"  y="237" width="43" height="24" rx="3" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <rect x="342"  y="237" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="363"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="386"  y="237" width="43" height="24" rx="3" fill="#0f766e"/><text x="407"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="430"  y="237" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="451"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="474"  y="237" width="43" height="24" rx="3" fill="#0f766e"/><text x="495"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="518"  y="237" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="539"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="562"  y="237" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="583"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="606"  y="237" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="627"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="650"  y="237" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="671"  y="254" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="694"  y="237" width="43" height="24" rx="3" fill="#eceee7"/>
+
+  <!-- S2: i i F F i B F B F B F B F B B -->
+  <rect x="78"   y="266" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="122"  y="266" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="166"  y="266" width="43" height="24" rx="3" fill="#0f766e"/><text x="187"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="210"  y="266" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="266" width="43" height="24" rx="3" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <rect x="298"  y="266" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="319"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="342"  y="266" width="43" height="24" rx="3" fill="#0f766e"/><text x="363"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="386"  y="266" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="407"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="430"  y="266" width="43" height="24" rx="3" fill="#0f766e"/><text x="451"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="474"  y="266" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="495"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="518"  y="266" width="43" height="24" rx="3" fill="#0f766e"/><text x="539"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="562"  y="266" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="583"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="606"  y="266" width="43" height="24" rx="3" fill="#0f766e"/><text x="627"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="650"  y="266" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="671"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="694"  y="266" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="715"  y="283" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+
+  <!-- S3: i i i F B F B F B F B F B F B -->
+  <rect x="78"   y="295" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="122"  y="295" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="166"  y="295" width="43" height="24" rx="3" fill="#eceee7"/>
+  <rect x="210"  y="295" width="43" height="24" rx="3" fill="#0f766e"/><text x="231"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="254"  y="295" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="275"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="298"  y="295" width="43" height="24" rx="3" fill="#0f766e"/><text x="319"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="342"  y="295" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="363"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="386"  y="295" width="43" height="24" rx="3" fill="#0f766e"/><text x="407"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="430"  y="295" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="451"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="474"  y="295" width="43" height="24" rx="3" fill="#0f766e"/><text x="495"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="518"  y="295" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="539"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="562"  y="295" width="43" height="24" rx="3" fill="#0f766e"/><text x="583"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="606"  y="295" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="627"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+  <rect x="650"  y="295" width="43" height="24" rx="3" fill="#0f766e"/><text x="671"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">F</text>
+  <rect x="694"  y="295" width="43" height="24" rx="3" fill="#0b4f4a"/><text x="715"  y="312" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">B</text>
+
+  <!-- 1F1B annotation: peak memory bracket (S0 at warmup peak = 4 stored) -->
+  <line x1="78" y1="333" x2="254" y2="333" stroke="#0f766e" stroke-width="1.5"/>
+  <line x1="78" y1="330" x2="78" y2="336" stroke="#0f766e" stroke-width="1.5"/>
+  <line x1="254" y1="330" x2="254" y2="336" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="165" y="345" text-anchor="middle" font-size="10" fill="#0f766e">P=4 activations max (vs M=6)</text>
+
+  <!-- 1F1B bubble annotation (Stage 0's 3 idle slots) -->
+  <line x1="254" y1="333" x2="386" y2="333" stroke="#c9cbc2" stroke-width="1.5" stroke-dasharray="3,2"/>
+  <text x="319" y="345" text-anchor="middle" font-size="10" fill="#5f625f">same bubble</text>
+
+  <!-- ═══ LEGEND ═══ -->
+  <rect x="16" y="354" width="14" height="10" rx="2" fill="#0f766e"/>
+  <text x="34" y="363" font-size="10" fill="#5f625f">Forward</text>
+  <rect x="100" y="354" width="14" height="10" rx="2" fill="#0b4f4a"/>
+  <text x="118" y="363" font-size="10" fill="#5f625f">Backward</text>
+  <rect x="194" y="354" width="14" height="10" rx="2" fill="#eceee7" stroke="#c9cbc2" stroke-width="1"/>
+  <text x="212" y="363" font-size="10" fill="#5f625f">Idle (bubble)</text>
+</svg>
