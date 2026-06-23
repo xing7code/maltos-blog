@@ -1,0 +1,106 @@
+<svg width="1200" height="560" viewBox="0 0 1200 560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font: 700 28px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
+      .subtitle { font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; fill: #64748b; }
+      .label { font: 700 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
+      .case { font: 800 18px Inter, ui-sans-serif, system-ui, sans-serif; fill: #0f172a; }
+      .code { font: 600 12px "JetBrains Mono", "Fira Code", ui-monospace, monospace; fill: #1e293b; }
+      .small { font: 500 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #475569; }
+      .note { font: 500 12px Inter, ui-sans-serif, system-ui, sans-serif; fill: #6b7280; }
+      .num { font: 700 14px "JetBrains Mono", ui-monospace, monospace; fill: #0f172a; }
+    </style>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.09"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="560" rx="28" fill="#f8fafc"/>
+  <text x="60" y="58" class="title">8x4090 Operational Snapshot</text>
+  <text x="60" y="84" class="subtitle">One PCIe RTX 4090 node, bf16, MALTOS runtime plugins. Step time is the cleaner cross-case metric — throughput mixes in chosen tokens/step.</text>
+
+  <!-- Header row -->
+  <rect x="40" y="112" width="120" height="34" rx="8" fill="#334155"/>
+  <text x="100" y="134" class="label" text-anchor="middle" fill="white">Case</text>
+  <rect x="170" y="112" width="280" height="34" rx="8" fill="#334155"/>
+  <text x="310" y="134" class="label" text-anchor="middle" fill="white">Topology</text>
+  <rect x="460" y="112" width="200" height="34" rx="8" fill="#334155"/>
+  <text x="560" y="134" class="label" text-anchor="middle" fill="white">Step time (lower = better)</text>
+  <rect x="670" y="112" width="270" height="34" rx="8" fill="#334155"/>
+  <text x="805" y="134" class="label" text-anchor="middle" fill="white">Throughput</text>
+  <rect x="950" y="112" width="210" height="34" rx="8" fill="#334155"/>
+  <text x="1055" y="134" class="label" text-anchor="middle" fill="white">Peak VRAM (of 24 GB)</text>
+
+  <!-- Case A: DP=8 ZeRO-3 -->
+  <rect x="40" y="158" width="120" height="66" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
+  <text x="100" y="190" class="case" text-anchor="middle">A</text>
+  <text x="100" y="210" class="note" text-anchor="middle">dense ZeRO-3</text>
+  <rect x="170" y="158" width="280" height="66" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+  <text x="184" y="184" class="code">DP=8, ZeRO-3</text>
+  <text x="184" y="204" class="note">24L · h=2048 · ff=8192 · 32,768 tok/step</text>
+  <!-- step bar: scale 21958ms -> width. max bar 270px at ~22000ms -->
+  <rect x="460" y="172" width="265" height="22" rx="5" fill="#ef4444" opacity="0.85"/>
+  <text x="468" y="188" class="num" fill="white">21,958 ms</text>
+  <rect x="670" y="172" width="40" height="22" rx="5" fill="#94a3b8"/>
+  <text x="718" y="188" class="num">1,492 tok/s</text>
+  <rect x="950" y="172" width="184" height="22" rx="5" fill="#f59e0b" opacity="0.8"/>
+  <text x="958" y="188" class="num" fill="white">21.01 GB</text>
+
+  <!-- Case D: DP=4 TP=2 ZeRO-1 -->
+  <rect x="40" y="232" width="120" height="66" rx="8" fill="#dcfce7" stroke="#16a34a" stroke-width="2" filter="url(#shadow)"/>
+  <text x="100" y="264" class="case" text-anchor="middle">D</text>
+  <text x="100" y="284" class="note" text-anchor="middle">TP sanity probe</text>
+  <rect x="170" y="232" width="280" height="66" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+  <text x="184" y="258" class="code">DP=4, TP=2, ZeRO-1</text>
+  <text x="184" y="278" class="note">24L · h=1024 · ff=4096 · smaller model</text>
+  <rect x="460" y="246" width="39" height="22" rx="5" fill="#22c55e"/>
+  <text x="507" y="262" class="num">3,267 ms</text>
+  <rect x="670" y="246" width="270" height="22" rx="5" fill="#22c55e"/>
+  <text x="678" y="262" class="num" fill="white">10,031 tok/s</text>
+  <rect x="950" y="246" width="78" height="22" rx="5" fill="#22c55e" opacity="0.7"/>
+  <text x="958" y="262" class="num" fill="white">8.89 GB</text>
+
+  <!-- Case E: DP=2 PP=2 TP=2 ZeRO-3 -->
+  <rect x="40" y="306" width="120" height="66" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="2" filter="url(#shadow)"/>
+  <text x="100" y="338" class="case" text-anchor="middle">E</text>
+  <text x="100" y="358" class="note" text-anchor="middle">3D stack</text>
+  <rect x="170" y="306" width="280" height="66" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+  <text x="184" y="332" class="code">DP=2, PP=2, TP=2, ZeRO-3</text>
+  <text x="184" y="352" class="note">24L · h=2048 · ff=8192 · 8,192 tok/step</text>
+  <rect x="460" y="320" width="124" height="22" rx="5" fill="#f97316" opacity="0.85"/>
+  <text x="592" y="336" class="num">10,263 ms</text>
+  <rect x="670" y="320" width="22" height="22" rx="5" fill="#94a3b8"/>
+  <text x="700" y="336" class="num">798 tok/s</text>
+  <rect x="950" y="320" width="167" height="22" rx="5" fill="#f59e0b" opacity="0.8"/>
+  <text x="958" y="336" class="num" fill="white">19.10 GB</text>
+
+  <!-- Case F: DP=4 CP=2 ZeRO-3 -->
+  <rect x="40" y="380" width="120" height="66" rx="8" fill="#cffafe" stroke="#0891b2" stroke-width="2" filter="url(#shadow)"/>
+  <text x="100" y="412" class="case" text-anchor="middle">F</text>
+  <text x="100" y="432" class="note" text-anchor="middle">CP overhead floor</text>
+  <rect x="170" y="380" width="280" height="66" rx="8" fill="#ecfeff" stroke="#a5f3fc" stroke-width="1.5"/>
+  <text x="184" y="406" class="code">DP=4, CP=2, ZeRO-3</text>
+  <text x="184" y="426" class="note">ring-attn at seq that doesn't need it</text>
+  <rect x="460" y="394" width="250" height="22" rx="5" fill="#ef4444" opacity="0.85"/>
+  <text x="468" y="410" class="num" fill="white">20,691 ms</text>
+  <rect x="670" y="394" width="12" height="22" rx="5" fill="#94a3b8"/>
+  <text x="690" y="410" class="num">396 tok/s</text>
+  <rect x="950" y="394" width="178" height="22" rx="5" fill="#f59e0b" opacity="0.8"/>
+  <text x="958" y="410" class="num" fill="white">20.37 GB</text>
+
+  <!-- Case G: DP=8 EP=4 ZeRO-3 -->
+  <rect x="40" y="454" width="120" height="66" rx="8" fill="#fef9c3" stroke="#ca8a04" stroke-width="2" filter="url(#shadow)"/>
+  <text x="100" y="486" class="case" text-anchor="middle">G</text>
+  <text x="100" y="506" class="note" text-anchor="middle">EP milestone</text>
+  <rect x="170" y="454" width="280" height="66" rx="8" fill="#fefce8" stroke="#fde68a" stroke-width="1.5"/>
+  <text x="184" y="480" class="code">DP=8, EP=4, ZeRO-3</text>
+  <text x="184" y="500" class="note">16L MoE · d=768 · ff=3072 · sparse</text>
+  <rect x="460" y="468" width="30" height="22" rx="5" fill="#22c55e"/>
+  <text x="498" y="484" class="num">2,450 ms</text>
+  <rect x="670" y="468" width="90" height="22" rx="5" fill="#84cc16"/>
+  <text x="768" y="484" class="num">3,344 tok/s</text>
+  <rect x="950" y="468" width="70" height="22" rx="5" fill="#22c55e" opacity="0.7"/>
+  <text x="958" y="484" class="num" fill="white">7.93 GB</text>
+
+  <text x="60" y="548" class="note">* Model shapes differ by case — compare A/E/F as dense/3D/CP runtime paths; read D as a TP probe and G as an EP milestone, not head-to-head benchmarks. Dense MFU here is ~1%: the gap is structural communication, not tuning.</text>
+</svg>

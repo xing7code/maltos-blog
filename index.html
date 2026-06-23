@@ -84,23 +84,24 @@
         </div>
         <div class="whats-new-layout">
           <article class="new-lead">
-            <div class="meta">Deep dive / Jun 11, 2026</div>
-            <h3><a href="blog/internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h3>
+            <div class="meta">Deep dive / Jun 12, 2026</div>
+            <h3><a href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">What Actually Gets Slow on 8x4090 LLM Training</a></h3>
             <p>
-              Parallelism strategies do not naturally compose. What composes is
-              a protocol around model transformation, gradient reduction,
-              optimizer ownership, checkpoint layout, and metric semantics.
+              An operational profile of MALTOS on a single 8x4090 node: once the
+              runtime is correct, which parallelism paths actually become slow —
+              and what kind of slow are they. Traces, ranked fixes, honest gaps.
             </p>
-            <a class="read-link" href="blog/internals/composable-parallelism.html">Read article</a>
+            <a class="read-link" href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">Read article</a>
           </article>
 
           <div class="new-stack">
             <article class="new-item">
-              <div class="meta">Chapter 7</div>
-              <h3><a href="blog/tutorials/context-parallelism.html">Context Parallelism</a></h3>
+              <div class="meta">Deep dive / Jun 11, 2026</div>
+              <h3><a href="blog/internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h3>
               <p>
-                Long-sequence training with ring attention, zigzag assignment, KV
-                movement, and CP memory tradeoffs.
+                Parallelism strategies do not naturally compose. What composes is
+                a protocol around model transforms, reducers, optimizer ownership,
+                checkpoint layout, and metric semantics.
               </p>
             </article>
 
@@ -169,6 +170,14 @@
               <h3><a href="blog/internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h3>
               <p>What actually composes is a protocol around model transforms, reducers, optimizer ownership, checkpoint layout, and metrics.</p>
               <a class="read-link" href="blog/internals/composable-parallelism.html">Read article</a>
+            </div>
+          </article>
+          <article class="article-card home-card">
+            <div class="article-card-body">
+              <div class="meta">Profile</div>
+              <h3><a href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">What Actually Gets Slow on 8x4090 LLM Training</a></h3>
+              <p>An operational profile on one PCIe 8x4090 node: which parallelism paths become slow once the runtime is correct, with traces and a ranked optimization roadmap.</p>
+              <a class="read-link" href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">Read article</a>
             </div>
           </article>
         </div>
