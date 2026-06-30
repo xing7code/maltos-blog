@@ -1,16 +1,16 @@
 ---
-title: Pretraining Infra Deep Dive
-description: Deep-dive notes on LLM pretraining systems: runtime contracts, sharding, checkpointing, pipeline schedules, and expert parallelism.
 ---
 
 {% assign series = site.data.article_series.internals %}
+{% assign page_title = "Pretraining Infra Deep Dive" %}
+{% assign page_description = "Deep-dive notes on LLM pretraining systems: runtime contracts, sharding, checkpointing, pipeline schedules, and expert parallelism." %}
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ page.title }} - {{ site.title }}</title>
-    <meta name="description" content="{{ page.description | default: site.description }}">
+    <title>{{ page_title }} - {{ site.title }}</title>
+    <meta name="description" content="{{ page_description }}">
     <link rel="stylesheet" href="{{ '/styles.css' | relative_url }}">
     {% include theme_script.html %}
   </head>
