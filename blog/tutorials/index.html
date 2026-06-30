@@ -1,34 +1,63 @@
 ---
-layout: default
 title: Pretraining Concepts
 description: A concept-first series on LLM pretraining infrastructure: training loops, data streaming, distributed communication, DDP, TP/SP, ZeRO, PP, CP, and MoE.
 ---
 
 {% assign series = site.data.article_series.tutorials %}
-
-<main>
-  <section class="page-title">
-    <p class="eyebrow">Concept Series</p>
-    <h1>{{ series.home_title }}</h1>
-    <p>
-      A first-principles tour of pretraining infrastructure: the training
-      loop, token streaming, distributed communication, sharding,
-      scheduling, and MoE mechanics.
-    </p>
-  </section>
-
-  <section class="post-list" aria-label="Tutorial posts">
-    {% for item in series.articles %}
-      {% assign article_url = series.url_prefix | append: item.href %}
-      {% assign article_page = site.pages | where: 'url', article_url | first %}
-      <article class="post-row">
-        <div class="meta">Chapter {{ forloop.index }}</div>
-        <div>
-          <h2><a href="{{ article_page.url | relative_url }}">{{ article_page.title | default: item.title }}</a></h2>
-          <p>{{ article_page.description }}</p>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ page.title }} - {{ site.title }}</title>
+    <meta name="description" content="{{ page.description | default: site.description }}">
+    <link rel="stylesheet" href="{{ '/styles.css' | relative_url }}">
+    {% include theme_script.html %}
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav" aria-label="Primary">
+        <a class="brand" href="{{ '/' | relative_url }}">
+          <img class="brand-mark" src="{{ "/assets/maltos-wordmark.svg" | relative_url }}" alt="{{ site.title }}">
+        </a>
+        <div class="nav-links">
+          <a class="nav-button" href="https://github.com/xing7code/maltos">GitHub</a>
         </div>
-        <div class="status">{{ item.status | default: series.status }}</div>
-      </article>
-    {% endfor %}
-  </section>
-</main>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-title">
+        <p class="eyebrow">Concept Series</p>
+        <h1>{{ series.home_title }}</h1>
+        <p>
+          A first-principles tour of pretraining infrastructure: the training
+          loop, token streaming, distributed communication, sharding,
+          scheduling, and MoE mechanics.
+        </p>
+      </section>
+
+      <section class="post-list" aria-label="Tutorial posts">
+        {% for item in series.articles %}
+          {% assign article_url = series.url_prefix | append: item.href %}
+          {% assign article_page = site.pages | where: 'url', article_url | first %}
+          <article class="post-row">
+            <div class="meta">Chapter {{ forloop.index }}</div>
+            <div>
+              <h2><a href="{{ article_page.url | relative_url }}">{{ article_page.title | default: item.title }}</a></h2>
+              <p>{{ article_page.description }}</p>
+            </div>
+            <div class="status">{{ item.status | default: series.status }}</div>
+          </article>
+        {% endfor %}
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="footer-inner">
+        <span>{{ site.title }}</span>
+        <span>Readable infrastructure notes for fast research.</span>
+      </div>
+    </footer>
+  </body>
+</html>
