@@ -3,7 +3,7 @@ layout: post
 title: "What Actually Gets Slow on 8x4090 LLM Training"
 description: "An operational profile of MALTOS on a single 8x4090 node: where ZeRO-3, 3D parallelism, context parallelism, and expert parallelism start paying real communication costs."
 category: Deep Dive
-date: 2026-06-12
+date: 2026-06-15
 read_time: 16 min read
 hero_image: /blog/assets/profile-8x4090-snapshot.svg
 hero_alt: 8x4090 MALTOS snapshot comparing throughput, step time, and peak VRAM across dense, TP, 3D, CP, and EP cases

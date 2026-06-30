@@ -77,6 +77,42 @@ Two operations dominate the rest of this series: `all_reduce` and the
 
 ---
 
+## Point-to-Point Communication
+
+Not every distributed operation is a collective.
+
+A **point-to-point (P2P)** operation sends data from one rank directly to
+another specific rank. The receiving rank posts the matching receive. In
+PyTorch distributed APIs, this usually appears as `send` / `recv` or the
+non-blocking `isend` / `irecv` pair.
+
+```text
+rank 0 --send tensor--> rank 1
+```
+
+This matters whenever communication is structured as a chain, ring, or
+stage-to-stage handoff rather than "everyone participates in one group
+operation."
+
+The most important examples in this series are:
+
+- **Pipeline parallelism**: stage `i` sends activations to stage `i+1`, and the
+  downstream stage sends activation gradients back during backward
+- **Ring attention / context parallelism**: each rank sends its current KV block
+  to one neighbor and receives the next block from the other neighbor
+- **Runtime overlap patterns**: non-blocking `isend` / `irecv` let communication
+  be enqueued earlier, with `wait()` deferred until the tensor is actually needed
+
+So the real primitive split is:
+
+- **Collectives**: one operation, all ranks in a process group participate
+- **P2P**: one sender and one receiver coordinate directly
+
+Both matter. DDP and ZeRO are mostly collective-heavy; pipeline parallelism and
+ring attention rely heavily on P2P.
+
+---
+
 ## Broadcast
 
 `broadcast` copies one tensor from a source rank to every other rank in the
@@ -236,6 +272,7 @@ That gives a quick decision table:
 - Assemble shards into a full tensor: `all_gather`
 - Copy one tensor from one rank to all ranks: `broadcast`
 - Exchange per-destination pieces: `all_to_all`
+- Send one tensor from rank A to rank B: `send` / `recv` or `isend` / `irecv`
 
 This is the real "distributed primitives" mental model. Different parallelism
 strategies mostly differ in when they invoke these operations and on which
@@ -268,4 +305,6 @@ Later articles reuse the same vocabulary in different ways:
 - TP uses collectives to combine partial matmul results
 - ZeRO replaces replicated gradient reduction with `reduce_scatter`
 - ZeRO-3 and TP use `all_gather` to materialize full tensors only when needed
+- PP uses P2P `isend` / `irecv` to move activations and gradients between stages
+- Ring attention uses P2P neighbor exchange instead of all-gathering the full KV cache
 - MoE uses `all_to_all` to route tokens to experts
