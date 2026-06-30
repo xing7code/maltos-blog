@@ -151,14 +151,21 @@ layout: default
           return;
         }
         ensureHeadingIds();
-        tocRoot.innerHTML = headings.map(function (heading) {
+        tocRoot.innerHTML = "";
+        tocRoot.style.display = "flex";
+        tocRoot.style.flexDirection = "column";
+        tocRoot.style.gap = "10px";
+        var fragment = document.createDocumentFragment();
+        headings.forEach(function (heading) {
           var level = heading.tagName.toLowerCase();
-          return (
-            '<a class="article-toc-link article-toc-' + level + '" href="#' + heading.id + '">' +
-            heading.textContent +
-            "</a>"
-          );
-        }).join("");
+          var link = document.createElement("a");
+          link.className = "article-toc-link article-toc-" + level;
+          link.href = "#" + heading.id;
+          link.textContent = heading.textContent;
+          link.style.display = "block";
+          fragment.appendChild(link);
+        });
+        tocRoot.appendChild(fragment);
       }
 
       function bindActiveSection() {
