@@ -3,6 +3,34 @@ layout: default
 ---
 
 {% assign is_manual_post = page.url contains '/blog/internals/' or page.url contains '/blog/tutorials/' %}
+{% assign series_key = nil %}
+{% if page.url contains '/blog/tutorials/' %}
+  {% assign series_key = 'tutorials' %}
+{% elsif page.url contains '/blog/internals/' %}
+  {% assign series_key = 'internals' %}
+{% endif %}
+{% assign series = site.data.article_series[series_key] %}
+{% assign current_href = page.url | split: '/' | last %}
+{% assign current_index = nil %}
+{% assign prev_article = nil %}
+{% assign next_article = nil %}
+{% if series %}
+  {% for item in series.articles %}
+    {% if item.href == current_href %}
+      {% assign current_index = forloop.index0 %}
+    {% endif %}
+  {% endfor %}
+  {% if current_index != nil %}
+    {% assign prev_index = current_index | minus: 1 %}
+    {% assign next_index = current_index | plus: 1 %}
+    {% if prev_index >= 0 %}
+      {% assign prev_article = series.articles[prev_index] %}
+    {% endif %}
+    {% if next_index < series.articles.size %}
+      {% assign next_article = series.articles[next_index] %}
+    {% endif %}
+  {% endif %}
+{% endif %}
 
 {% if is_manual_post %}
   <button class="manual-toc-toggle" type="button" aria-label="Toggle contents">
@@ -11,11 +39,34 @@ layout: default
   </button>
 
   <div class="manual-shell manual-shell-post">
-    <aside class="manual-sidebar">
-      {% include manual_nav.html %}
+    <aside class="manual-sidebar article-sidebar">
+      <nav class="article-toc" aria-label="On this page">
+        <a class="manual-nav-home" href="index.html">{{ series.home_title | default: "Articles" }}</a>
+        <p class="article-toc-kicker">On this page</p>
+        <div class="article-toc-list" data-toc-root></div>
+      </nav>
     </aside>
 
     <article class="manual-content post">
+      {% if prev_article or next_article %}
+        <nav class="article-pager article-pager-top" aria-label="Article navigation">
+          {% if prev_article %}
+            <a class="article-pager-link article-pager-prev" href="{{ prev_article.href }}">
+              <span class="article-pager-label">Previous article</span>
+              <span class="article-pager-title">{{ prev_article.title }}</span>
+            </a>
+          {% else %}
+            <span class="article-pager-spacer" aria-hidden="true"></span>
+          {% endif %}
+          {% if next_article %}
+            <a class="article-pager-link article-pager-next" href="{{ next_article.href }}">
+              <span class="article-pager-label">Next article</span>
+              <span class="article-pager-title">{{ next_article.title }}</span>
+            </a>
+          {% endif %}
+        </nav>
+      {% endif %}
+
       <header class="manual-head post-hero">
         <p class="eyebrow">{{ page.category | default: "Technical note" }}</p>
         <h1>{{ page.title }}</h1>
@@ -36,6 +87,25 @@ layout: default
 
       <div class="post-body">
         {{ content }}
+        {% if prev_article or next_article %}
+          <nav class="article-pager" aria-label="Article navigation">
+            {% if prev_article %}
+              <a class="article-pager-link article-pager-prev" href="{{ prev_article.href }}">
+                <span class="article-pager-label">Previous article</span>
+                <span class="article-pager-title">{{ prev_article.title }}</span>
+              </a>
+            {% else %}
+              <span class="article-pager-spacer" aria-hidden="true"></span>
+            {% endif %}
+            {% if next_article %}
+              <a class="article-pager-link article-pager-next" href="{{ next_article.href }}">
+                <span class="article-pager-label">Next article</span>
+                <span class="article-pager-title">{{ next_article.title }}</span>
+              </a>
+            {% endif %}
+          </nav>
+        {% endif %}
+        {% include comments.html %}
       </div>
     </article>
   </div>
@@ -44,6 +114,77 @@ layout: default
     (function () {
       var body = document.body;
       var button = document.querySelector(".manual-toc-toggle");
+      var tocRoot = document.querySelector("[data-toc-root]");
+      var headings = Array.from(document.querySelectorAll(".post-body h2, .post-body h3")).filter(function (heading) {
+        return !heading.closest("[data-toc-skip='true']");
+      });
+
+      function slugify(text) {
+        return text
+          .toLowerCase()
+          .trim()
+          .replace(/[^\w\s-]/g, "")
+          .replace(/\s+/g, "-")
+          .replace(/-+/g, "-");
+      }
+
+      function ensureHeadingIds() {
+        var seen = new Set();
+        headings.forEach(function (heading) {
+          if (!heading.id) {
+            heading.id = slugify(heading.textContent || "section");
+          }
+          var baseId = heading.id;
+          var suffix = 2;
+          while (seen.has(heading.id)) {
+            heading.id = baseId + "-" + suffix;
+            suffix += 1;
+          }
+          seen.add(heading.id);
+        });
+      }
+
+      function buildToc() {
+        if (!tocRoot) return;
+        if (!headings.length) {
+          tocRoot.innerHTML = '<p class="article-toc-empty">No sections yet.</p>';
+          return;
+        }
+        ensureHeadingIds();
+        tocRoot.innerHTML = headings.map(function (heading) {
+          var level = heading.tagName.toLowerCase();
+          return (
+            '<a class="article-toc-link article-toc-' + level + '" href="#' + heading.id + '">' +
+            heading.textContent +
+            "</a>"
+          );
+        }).join("");
+      }
+
+      function bindActiveSection() {
+        if (!tocRoot || !headings.length || !("IntersectionObserver" in window)) return;
+        var links = new Map();
+        tocRoot.querySelectorAll(".article-toc-link").forEach(function (link) {
+          links.set(link.getAttribute("href").slice(1), link);
+        });
+        var activeId = null;
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            activeId = entry.target.id;
+            links.forEach(function (link, id) {
+              link.classList.toggle("active", id === activeId);
+            });
+          });
+        }, {
+          rootMargin: "0px 0px -70% 0px",
+          threshold: 0.1
+        });
+        headings.forEach(function (heading) {
+          observer.observe(heading);
+        });
+      }
+
       if (button) {
         button.addEventListener("click", function () {
           if (window.matchMedia("(max-width: 1000px)").matches) {
@@ -53,14 +194,8 @@ layout: default
           body.classList.toggle("toc-collapsed");
         });
       }
-      var here = location.pathname.split("/").pop() || "index.html";
-      document.querySelectorAll(".manual-nav a").forEach(function (a) {
-        if (a.getAttribute("href") === here) {
-          a.classList.add("active");
-          var group = a.closest("details");
-          if (group) group.open = true;
-        }
-      });
+      buildToc();
+      bindActiveSection();
     })();
   </script>
 {% else %}

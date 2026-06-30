@@ -4,6 +4,14 @@ url: ""
 baseurl: "/maltos-blog"
 markdown: kramdown
 highlighter: rouge
+comments:
+  enabled: true
+  provider: utterances
+  repo: xing7code/maltos
+  issue_term: pathname
+  theme:
+    light: github-light
+    dark: github-dark
 
 exclude:
   - .DS_Store

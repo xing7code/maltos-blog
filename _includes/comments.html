@@ -1,0 +1,71 @@
+{% assign comments = site.comments %}
+{% assign comments_enabled = comments.enabled and page.comments != false %}
+
+{% if comments_enabled %}
+  {% assign provider = comments.provider | default: 'utterances' %}
+  {% if provider == 'utterances' and comments.repo %}
+    {% assign light_theme = comments.theme.light | default: 'github-light' %}
+    {% assign dark_theme = comments.theme.dark | default: 'github-dark' %}
+    {% assign issue_term = comments.issue_term | default: 'pathname' %}
+
+    <section class="article-comments" data-toc-skip="true" aria-labelledby="article-comments-title">
+      <div class="article-comments-head">
+        <p class="article-comments-kicker">Discussion</p>
+        <h2 id="article-comments-title">Comments</h2>
+        <p class="article-comments-deck">Questions, corrections, and follow-ups are welcome here.</p>
+      </div>
+      <div
+        class="article-comments-thread"
+        data-comments-provider="utterances"
+        data-repo="{{ comments.repo }}"
+        data-issue-term="{{ issue_term }}"
+        data-light-theme="{{ light_theme }}"
+        data-dark-theme="{{ dark_theme }}">
+      </div>
+      <noscript>
+        <p class="article-comments-note">Enable JavaScript to load the comment thread.</p>
+      </noscript>
+    </section>
+
+    <script>
+      (function () {
+        var container = document.querySelector("[data-comments-provider='utterances']");
+        if (!container || container.getAttribute("data-loaded") === "true") return;
+
+        function currentThemeName() {
+          var rootTheme = document.documentElement.getAttribute("data-theme");
+          var darkPreferred = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          return rootTheme === "dark" || (!rootTheme && darkPreferred) ? "dark" : "light";
+        }
+
+        function utterancesTheme() {
+          return currentThemeName() === "dark"
+            ? container.getAttribute("data-dark-theme")
+            : container.getAttribute("data-light-theme");
+        }
+
+        function syncUtterancesTheme() {
+          var frame = document.querySelector(".utterances-frame");
+          if (!frame || !frame.contentWindow) return;
+          frame.contentWindow.postMessage(
+            { type: "set-theme", theme: utterancesTheme() },
+            "https://utteranc.es"
+          );
+        }
+
+        var script = document.createElement("script");
+        script.src = "https://utteranc.es/client.js";
+        script.async = true;
+        script.crossOrigin = "anonymous";
+        script.setAttribute("repo", container.getAttribute("data-repo"));
+        script.setAttribute("issue-term", container.getAttribute("data-issue-term"));
+        script.setAttribute("theme", utterancesTheme());
+        container.appendChild(script);
+        container.setAttribute("data-loaded", "true");
+
+        var observer = new MutationObserver(syncUtterancesTheme);
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+      })();
+    </script>
+  {% endif %}
+{% endif %}

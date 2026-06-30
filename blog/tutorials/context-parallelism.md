@@ -2,7 +2,7 @@
 layout: post
 title: "Context Parallelism"
 description: Self-attention has quadratic memory cost in sequence length. Context parallelism shards the sequence across GPUs so each rank only processes a fraction of the tokens. This article covers how attention stays correct when the key-value pairs it needs are on a different GPU.
-category: Pretraining Concepts · Part 7 of 8
+category: Pretraining Concepts · Part 8 of 9
 date: 2026-06-11
 read_time: 13 min read
 ---
@@ -20,7 +20,7 @@ hidden states — still grow linearly with T per layer; at T=128K, summed across
 dozens of layers, they exceed a single GPU's memory on their own. Context
 parallelism addresses both by splitting the sequence itself across GPUs.
 
-Sequence parallelism (Part 4) shards activations *between* layers — each rank
+Sequence parallelism (Part 5) shards activations *between* layers — each rank
 holds `[B, T/N, d_model]` outside the TP compute regions, but the attention
 computation still processes the full local sequence. CP goes further: it shards
 the sequence *everywhere*, including inside attention. Each rank owns `T/N` tokens

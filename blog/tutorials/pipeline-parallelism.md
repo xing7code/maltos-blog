@@ -2,7 +2,7 @@
 layout: post
 title: "Pipeline Parallelism"
 description: When a model is too large to fit on a node — or when tensor parallelism has hit its scaling limit — pipeline parallelism splits the model vertically across stages and keeps all GPUs busy with a schedule of microbatches. This article covers how the split works, the two schedules MALTOS implements, and where the bubble comes from.
-category: Pretraining Concepts · Part 6 of 8
+category: Pretraining Concepts · Part 7 of 9
 date: 2026-06-11
 read_time: 14 min read
 ---

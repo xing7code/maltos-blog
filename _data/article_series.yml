@@ -1,0 +1,29 @@
+tutorials:
+  home_title: Pretraining Concepts
+  articles:
+    - href: pretraining-loop-from-scratch.html
+      title: The Pretraining Loop, From Scratch
+    - href: how-we-store-and-stream-tokens.html
+      title: How We Store and Stream Tokens
+    - href: distributed-primitives.html
+      title: Distributed Primitives for LLM Training
+    - href: data-parallelism-ddp.html
+      title: Data Parallelism and Gradient Reduction
+    - href: tensor-and-sequence-parallelism.html
+      title: Tensor and Sequence Parallelism
+    - href: zero-optimizer-sharding.html
+      title: ZeRO Optimizer Sharding
+    - href: pipeline-parallelism.html
+      title: Pipeline Parallelism
+    - href: context-parallelism.html
+      title: Context Parallelism
+    - href: moe-and-expert-parallelism.html
+      title: Mixture of Experts and Expert Parallelism
+
+internals:
+  home_title: Deep Dive
+  articles:
+    - href: maltos-a-modular-runtime-for-llm-training.html
+      title: Runtime Overview
+    - href: composable-parallelism.html
+      title: Composable Parallelism

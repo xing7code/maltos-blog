@@ -18,8 +18,8 @@
   </defs>
 
   <rect width="1200" height="500" rx="28" fill="#f8fafc"/>
-  <text x="60" y="60" class="title">Token Shards, Windows, and DP Partitioning</text>
-  <text x="60" y="86" class="subtitle">Each training window consumes seq_len+1 raw tokens. DP ranks take interleaved non-overlapping slices.</text>
+  <text x="60" y="60" class="title">Token Shards, Samples, and DP Partitioning</text>
+  <text x="60" y="86" class="subtitle">Each training sample consumes seq_len+1 raw tokens. DP ranks take interleaved non-overlapping slices.</text>
 
   <!-- Shard files row -->
   <text x="60" y="126" class="label">Disk: flat binary shards (uint32 token IDs)</text>
@@ -54,40 +54,40 @@
   <line x1="600" y1="296" x2="600" y2="320" class="edge"/>
 
   <!-- DP partitioning - seq_len=5 for illustration -->
-  <text x="60" y="346" class="label">DP-aware windowing (seq_len=5, dp_world_size=3, each window=seq_len+1=6 tokens)</text>
+  <text x="60" y="346" class="label">DP-aware sample partitioning (seq_len=5, dp_world_size=3, each sample=seq_len+1=6 tokens)</text>
 
-  <!-- Rank 0 windows -->
+  <!-- Rank 0 samples -->
   <rect x="60" y="358" width="126" height="52" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
   <text x="123" y="379" class="code" text-anchor="middle">t₀ t₁ t₂ t₃ t₄ t₅</text>
-  <text x="123" y="397" class="note" text-anchor="middle">rank 0, window 0</text>
+  <text x="123" y="397" class="note" text-anchor="middle">rank 0, sample 0</text>
 
-  <!-- Rank 1 windows -->
+  <!-- Rank 1 samples -->
   <rect x="206" y="358" width="126" height="52" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="2" filter="url(#shadow)"/>
   <text x="269" y="379" class="code" text-anchor="middle">t₆ t₇ t₈ t₉ t₁₀ t₁₁</text>
-  <text x="269" y="397" class="note" text-anchor="middle">rank 1, window 0</text>
+  <text x="269" y="397" class="note" text-anchor="middle">rank 1, sample 0</text>
 
-  <!-- Rank 2 windows -->
+  <!-- Rank 2 samples -->
   <rect x="352" y="358" width="126" height="52" rx="8" fill="#fce7f3" stroke="#db2777" stroke-width="2" filter="url(#shadow)"/>
   <text x="415" y="379" class="code" text-anchor="middle">t₁₂ ··· t₁₇</text>
-  <text x="415" y="397" class="note" text-anchor="middle">rank 2, window 0</text>
+  <text x="415" y="397" class="note" text-anchor="middle">rank 2, sample 0</text>
 
-  <!-- Next windows -->
+  <!-- Next samples -->
   <rect x="498" y="358" width="126" height="52" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
   <text x="561" y="379" class="code" text-anchor="middle">t₁₈ ··· t₂₃</text>
-  <text x="561" y="397" class="note" text-anchor="middle">rank 0, window 1</text>
+  <text x="561" y="397" class="note" text-anchor="middle">rank 0, sample 1</text>
 
   <rect x="644" y="358" width="126" height="52" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="2" filter="url(#shadow)"/>
   <text x="707" y="379" class="code" text-anchor="middle">t₂₄ ··· t₂₉</text>
-  <text x="707" y="397" class="note" text-anchor="middle">rank 1, window 1</text>
+  <text x="707" y="397" class="note" text-anchor="middle">rank 1, sample 1</text>
 
   <rect x="790" y="358" width="126" height="52" rx="8" fill="#fce7f3" stroke="#db2777" stroke-width="2" filter="url(#shadow)"/>
   <text x="853" y="379" class="code" text-anchor="middle">t₃₀ ··· t₃₅</text>
-  <text x="853" y="397" class="note" text-anchor="middle">rank 2, window 1</text>
+  <text x="853" y="397" class="note" text-anchor="middle">rank 2, sample 1</text>
 
   <text x="960" y="388" class="label">···</text>
 
   <!-- Bottom notes -->
-  <text x="60" y="444" class="note">• input_ids = window[0:seq_len],  labels = window[1:seq_len+1]  (the +1 convention)</text>
+  <text x="60" y="444" class="note">• input_ids = sample[0:seq_len],  labels = sample[1:seq_len+1]  (the +1 convention)</text>
   <text x="60" y="462" class="note">• All DP ranks together cover every token exactly once per global step — no gaps, no repeats</text>
   <text x="60" y="480" class="note">• Checkpoint saves (shard_idx, token_offset) per rank — restoring it reproduces the exact token sequence</text>
 </svg>

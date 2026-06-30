@@ -2,7 +2,7 @@
 layout: post
 title: "Data Parallelism and Gradient Reduction"
 description: DDP is the first parallelism strategy every pretraining setup needs. This article covers synchronous and asynchronous gradient all-reduce, the bucketed implementation that overlaps communication with backward, and why the naive approach leaves performance on the table.
-category: Pretraining Concepts · Part 3 of 8
+category: Pretraining Concepts · Part 4 of 9
 date: 2026-06-11
 read_time: 14 min read
 ---
@@ -18,27 +18,8 @@ This article covers how DDP gradient reduction works, why the naive synchronous
 implementation is inefficient, and how the bucketed approach achieves nearly full
 overlap between computation and communication.
 
----
-
-## Distributed Primitives: Rank, World Size, Process Groups
-
-Before diving into DDP, three terms appear throughout this article and the next two:
-
-- **Rank**: the integer index (0, 1, 2, …) that identifies this process in a
-  distributed job. Each GPU runs one process; rank 0 is typically the "main" process
-  for logging and checkpointing.
-- **World size**: the total number of processes. In a DDP setup with 4 GPUs,
-  `world_size = 4` and ranks are 0–3.
-- **Process group**: a named subset of ranks that communicate with each other.
-  All-reduce, all-gather, and reduce-scatter operations run within a process group.
-  A process group also carries a backend (NCCL for GPU-to-GPU via NVLink/InfiniBand,
-  Gloo for CPU testing) that controls how the communication executes. A single
-  training job can have multiple groups — for example, a separate DP group and a TP
-  group — each with its own set of ranks, backend, and communication scope.
-
-With these in hand, a DDP setup on 4 GPUs means: 4 ranks, world size 4, one DP
-process group containing all 4 ranks. Each rank runs the same model on a different
-batch; the DP process group is where gradient reduction happens.
+It assumes the primitives from the previous article: ranks, process groups, and
+the meaning of collective operations such as all-reduce and reduce-scatter.
 
 ---
 
@@ -311,7 +292,7 @@ The difference matters for memory. An all-reduce gives every rank the full avera
 gradient — every rank stores a full-size gradient tensor (one float per parameter).
 A reduce-scatter produces the same averaged values, but each rank only receives its
 assigned `1/N` slice. ZeRO-3 uses reduce-scatter so no rank ever stores the full
-gradient tensor; each rank stores and updates only its shard. Part 5 covers
+gradient tensor; each rank stores and updates only its shard. Part 6 covers
 ZeRO in detail.
 
 The plugin system enforces the DDP/ZeRO mutual exclusion: both compete for the

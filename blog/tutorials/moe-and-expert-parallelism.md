@@ -2,7 +2,7 @@
 layout: post
 title: "Mixture of Experts and Expert Parallelism"
 description: MoE replaces a dense FFN with a pool of expert networks and a router that sends each token to one expert. Expert parallelism distributes those experts across GPUs with an all-to-all dispatch that routes tokens to their experts' ranks — and back.
-category: Pretraining Concepts · Part 8 of 8
+category: Pretraining Concepts · Part 9 of 9
 date: 2026-06-11
 read_time: 14 min read
 ---
@@ -403,14 +403,15 @@ This concludes the tutorial series. You now have the complete picture:
 |---|---|---|
 | 1 | Training loop | Basic infrastructure |
 | 2 | Token data pipeline | Efficient sequential data loading |
-| 3 | Data parallelism | Throughput via data replication |
-| 4 | Tensor + sequence parallelism | Model memory within a node |
-| 5 | ZeRO optimizer sharding | Optimizer state memory |
-| 6 | Pipeline parallelism | Model depth across nodes |
-| 7 | Context parallelism | Quadratic attention memory at long context |
-| 8 | MoE + expert parallelism | Parameter scaling without compute scaling |
+| 3 | Distributed primitives | Collective communication building blocks |
+| 4 | Data parallelism | Throughput via data replication |
+| 5 | Tensor + sequence parallelism | Model memory within a node |
+| 6 | ZeRO optimizer sharding | Optimizer state memory |
+| 7 | Pipeline parallelism | Model depth across nodes |
+| 8 | Context parallelism | Quadratic attention memory at long context |
+| 9 | MoE + expert parallelism | Parameter scaling without compute scaling |
 
-These eight techniques cover the full space of modern large-scale pretraining.
+These nine chapters cover the core building blocks of modern large-scale pretraining.
 Real frontier runs combine many of them simultaneously, each solving a different
 dimension of the memory and compute problem.
 
@@ -418,12 +419,12 @@ dimension of the memory and compute problem.
 
 | Your situation | Typical configuration |
 |---|---|
-| Model fits on one GPU, want speed | DDP (Part 3) |
-| Model fits, optimizer state doesn't | DDP + ZeRO-1/2 (Part 5) |
-| Model doesn't fit on one GPU, fits on a node | TP+SP within the node (Part 4), DP/ZeRO across nodes |
-| Model doesn't fit on a node | + PP across nodes (Part 6), or ZeRO-3 if interconnect is fast |
-| Long context (32K+) | + CP (Part 7) |
-| MoE model | + EP (Part 8) |
+| Model fits on one GPU, want speed | DDP (Part 4) |
+| Model fits, optimizer state doesn't | DDP + ZeRO-1/2 (Part 6) |
+| Model doesn't fit on one GPU, fits on a node | TP+SP within the node (Part 5), DP/ZeRO across nodes |
+| Model doesn't fit on a node | + PP across nodes (Part 7), or ZeRO-3 if interconnect is fast |
+| Long context (32K+) | + CP (Part 8) |
+| MoE model | + EP (Part 9) |
 
 A concrete example: a 70B dense model on 64 H100s might run TP=8 (one node),
 PP=2, DP=4, with ZeRO-1 on the DP axis — 8×2×4 = 64 GPUs, each holding 1/16 of

@@ -2,7 +2,7 @@
 layout: post
 title: "The Pretraining Loop, From Scratch"
 description: Before you need tensor parallelism or ZeRO, you need a working training loop. This article builds one from first principles — the minimal version, what it leaves out, and why the structure matters when you scale.
-category: Pretraining Concepts · Part 1 of 8
+category: Pretraining Concepts · Part 1 of 9
 date: 2026-06-11
 read_time: 12 min read
 ---
@@ -20,20 +20,21 @@ breaks down, and shows how the structure needs to change to accommodate scale.
 
 ---
 
-**This series**: eight articles building a pretraining stack from first principles.
+**This series**: nine articles building a pretraining stack from first principles.
 
 | Article | Topic |
 |---|---|
 | **Part 1** (this article) | The training loop: gradient accumulation, mixed precision, checkpointing |
 | **Part 2** | Token shards, memory-mapped access, DP-aware data streaming |
-| **Part 3** | Data parallelism: gradient all-reduce and bucketed async DDP |
-| **Part 4** | Tensor and sequence parallelism: sharding weight matrices across GPUs |
-| **Part 5** | ZeRO optimizer sharding: cutting memory by sharding optimizer state and weights |
-| **Part 6** | Pipeline parallelism: splitting model depth across nodes with microbatch schedules |
-| **Part 7** | Context parallelism: training on very long sequences with ring attention |
-| **Part 8** | Mixture of Experts and expert parallelism: scaling parameters without scaling compute |
+| **Part 3** | Distributed primitives: ranks, process groups, and collectives |
+| **Part 4** | Data parallelism: gradient all-reduce and bucketed async DDP |
+| **Part 5** | Tensor and sequence parallelism: sharding weight matrices across GPUs |
+| **Part 6** | ZeRO optimizer sharding: cutting memory by sharding optimizer state and weights |
+| **Part 7** | Pipeline parallelism: splitting model depth across nodes with microbatch schedules |
+| **Part 8** | Context parallelism: training on very long sequences with ring attention |
+| **Part 9** | Mixture of Experts and expert parallelism: scaling parameters without scaling compute |
 
-**Prerequisites**: Python, PyTorch basics (`nn.Module`, `torch.optim`, tensor operations), and a working understanding of how gradient descent trains a neural network. No prior distributed training knowledge is assumed — Parts 3–8 introduce distributed concepts as needed.
+**Prerequisites**: Python, PyTorch basics (`nn.Module`, `torch.optim`, tensor operations), and a working understanding of how gradient descent trains a neural network. No prior distributed training knowledge is assumed — Parts 3–9 introduce distributed concepts as needed.
 
 ---
 
@@ -122,19 +123,20 @@ Casting `float32 → bfloat16` loses about 8 bits of mantissa precision, which i
 acceptable for matrix multiplications (the dominant cost) but not for numerically
 sensitive operations like normalization.
 
-**`bfloat16` vs `float16`**. For LLM training, `bfloat16` is strongly preferred
-over `float16`:
+**`bfloat16` vs `float16`**. For LLM training, `bfloat16` is usually the better
+default:
 
 - `bfloat16` has the same 8-bit exponent range as `float32`, so it can represent
   the same magnitude of numbers without overflow
 - `float16` has only a 5-bit exponent and overflows at values above ~65,500 —
   common in attention logits and gradient norms during LLM training
-- `float16` training requires a `GradScaler` that multiplies the loss by a large
-  factor before backward to avoid gradient underflow, then divides out before the
-  optimizer step; `bfloat16` generally does not
+- `float16` training usually requires a `GradScaler`, which multiplies the loss
+  before backward to avoid gradient underflow and then unscales before the
+  optimizer step; `bfloat16` usually does not require one
 
-Use `bfloat16` on A100/H100. On older hardware (V100, earlier) that doesn't support
-`bfloat16`, the `float16` path requires a gradient scaler:
+So in practice, use `bfloat16` on hardware that supports it, such as A100/H100.
+On older hardware such as V100 that does not support `bfloat16`, you usually
+fall back to `float16`, which means adding a gradient scaler:
 
 ```python
 # float16 path — use only on hardware that doesn't support bfloat16
@@ -163,11 +165,14 @@ data is structured and how supervised learning data is structured.
 In supervised learning, a dataset is a finite set of labeled examples. You
 shuffle them, iterate through all of them once per epoch, then repeat.
 
-In pretraining, the dataset is a long token sequence — billions of tokens — from
-which you construct overlapping windows. There are no natural epoch boundaries in
-most pretraining runs (many runs are shorter than one full pass through the data).
-Shuffling individual windows loses local context that contributes to the training
-signal.
+In pretraining, the data is usually treated as a very long token stream —
+billions or trillions of tokens — and training examples are cut from that stream
+as contiguous fixed-length windows. Most runs are budgeted by total tokens or
+optimizer steps, not by epochs, and many do not complete a full pass through
+the corpus. In practice, pipelines may shuffle at the document or shard level,
+but batch construction on each worker is usually modeled as advancing a cursor
+through a sequential token stream rather than sampling independent windows at
+random.
 
 The data pipeline for pretraining is a **stateful cursor** over a sequential
 token stream:
@@ -282,28 +287,26 @@ Useful metrics for a pretraining run:
 
 | Metric | Why it matters |
 |---|---|
-| **Loss** | The primary signal; should decrease and be smooth |
-| **Learning rate** | Verify the schedule is applying correctly |
-| **Gradient norm** | Spikes indicate instability; should be smooth after warmup |
-| **Tokens per second** | Throughput; should be stable after warmup |
-| **TFLOPS/GPU** | Hardware utilization; reveals whether the workload is memory-bound |
-| **Reserved memory** | Should be flat; growth indicates a memory leak |
-| **Loss scale** (fp16 only) | Overflow indicator |
+| **Loss** | Primary training signal; expect noise step to step, but the trend should move down |
+| **Learning rate** | Verifies warmup/decay scheduling and helps catch resume or config mistakes |
+| **Gradient norm** | Large spikes can indicate instability; sudden collapse can indicate vanishing or missing gradients |
+| **Tokens per second** | Throughput sanity check; drops can reveal dataloader stalls or synchronization overhead |
+| **TFLOPS/GPU** | Rough efficiency proxy; most useful when comparing runs with similar model size and sequence length |
+| **Reserved memory** | Tracks allocator behavior; unexpected upward drift can indicate retained tensors or fragmentation |
+| **Loss scale** (fp16 only) | Numerical stability signal for `fp16`; repeated scale drops or skipped optimizer steps usually mean overflow is happening |
 
 Logging all of these at every step is expensive. Log every 10–50 steps; use
 window averaging to smooth the values between log points.
 
 ---
 
----
+## The Full Single-GPU Loop
 
 <div class="article-figure">
-  <img src="../assets/training-loop-flow.svg" alt="Training loop flow: gradient accumulation, mixed precision, and checkpointing">
+  <img src="../assets/training-loop-flow.svg" alt="Training loop flow: gradient accumulation, mixed precision, logging, and checkpointing">
 </div>
 
 ---
-
-## The Full Single-GPU Loop
 
 Putting the above together:
 
@@ -366,57 +369,69 @@ from ~2.5 to below 2.0 in a few hundred steps. The infrastructure works.
 Two limits motivate distributed training:
 
 **Memory**. The parameters, gradients, and optimizer states for a 7B-parameter
-model exceed the memory of any single GPU. Under Adam with mixed precision, each
-parameter requires:
-- 2 bytes (parameter, in bf16)
+model exceed the memory of any single GPU. In a common Adam mixed-precision
+setup, each parameter typically requires:
+
+- 2 bytes (model parameter, in bf16)
+- 4 bytes (fp32 master parameter used by the optimizer)
 - 4 bytes (optimizer first moment, in fp32)
 - 4 bytes (optimizer second moment, in fp32)
-- 2 bytes (gradient, in bf16; some implementations keep gradients in fp32, adding 2 bytes)
+- 2 bytes (gradient, in bf16)
 
-That's 12 bytes per parameter at minimum, or ~84 GB for a 7B-parameter model —
-before activations. A single H100 has 80 GB. Single-GPU training of a 7B model
-is not possible.
+That is about 16 bytes per parameter in a common bf16 Adam setup, or roughly
+112 GB for a 7B-parameter model before activations. Depending on the exact
+optimizer/runtime, the number can vary a bit, but the conclusion does not: a
+7B model does not fit comfortably on a single 80 GB GPU for training.
 
-**Throughput**. Training GPT-3 (175B parameters) to convergence required roughly
-3.14 × 10²³ floating point operations. An H100's dense bf16 peak is ~989 TFLOPS,
-and real training workloads sustain 35–45% of peak (the rest is lost to memory
-stalls, communication, and kernel overheads) — call it ~400 TFLOPS of useful
-throughput. At that rate a single H100 would take about 25 years. The only
-option is distributing across many GPUs.
+**Throughput**. A rough compute-budget sanity check leads to the same
+conclusion. Training a GPT-3-scale run requires on the order of `3.14 × 10²³`
+floating point operations. An H100's dense bf16 peak is ~989 TFLOPS, and real
+training workloads often sustain only 35–45% of peak once memory stalls, kernel
+overheads, and other inefficiencies are included — call it ~400 TFLOPS of
+useful throughput. Even at that optimistic rate, a single H100 would need about
+25 years of nonstop training time. That is why large-scale pretraining is
+distributed across many GPUs.
+
+> **Tip**
+> A common back-of-the-envelope estimate for dense Transformer training is
+> `6ND`, where `N` is parameter count and `D` is the number of training tokens.
+> The `6` comes from roughly `2N` FLOPs per token for the forward pass and `4N`
+> more for the backward pass: about `2N` for propagating gradients through the
+> activations and another `2N` for computing parameter gradients. For GPT-3, `N = 175B` and
+> `D = 300B`, giving about `6 × 175e9 × 300e9 ≈ 3.14 × 10²³` FLOPs.
 
 ---
 
 ## Why the Trainer Structure Matters
 
-Consider what happens when you add ZeRO to this loop. The optimizer is no longer
-a standard AdamW over all parameters. ZeRO shards the optimizer state across
-DP ranks, so each rank's optimizer steps on a subset of parameters. The
-`optimizer.step()` call now implicitly performs a distributed operation.
+So far this article has stayed on a single GPU. But the reason to keep the loop
+small and explicit is that the next steps in the series will start replacing
+pieces of it with distributed behavior.
 
-If this logic lives inside `fit()`, the training loop grows a conditional:
-`if zero3 else if zero2 else if ddp`. Add TP and another conditional appears
-for the forward pass token counting. Add PP and the entire accumulation loop
-needs to be replaced with a pipeline schedule.
+Consider what changes once you add ZeRO. The optimizer is no longer a standard
+AdamW over all parameters. ZeRO shards optimizer state across DP ranks, so each
+rank steps only a subset of parameters. The `optimizer.step()` call is no longer
+just a local update; it now has distributed semantics.
 
-A training loop that knows about every parallelism strategy isn't a trainer.
-It's a distributed training framework with an obscured API.
+The same pattern appears elsewhere. Add DDP and gradient reduction enters the
+loop. Add TP and the model itself is transformed. Add PP and the simple
+accumulation loop turns into a pipeline schedule. If all of that logic lives
+directly inside `fit()`, the training loop fills up with strategy-specific
+branches like `if ddp`, `if zero3`, and `if pp`.
 
-The cleaner separation is:
+At that point, the trainer is no longer just a trainer. It has quietly become a
+distributed runtime.
 
-- **Trainer**: decides when to log, when to checkpoint, how many steps to run.
-  Does not know about distributed strategies.
-- **Runtime**: executes steps and optimizer updates. Coordinates plugins.
-  Does not decide when to log or checkpoint.
-- **Plugins**: own distributed behavior. Hook into runtime phases.
-  Don't modify each other directly.
+That is the design lesson to carry forward from this article:
 
-With this separation, the trainer above can run single-GPU, DDP, TP+SP, or
-DP+TP+SP+ZeRO3 configurations with the same code. The parallelism is in the
-plugins, not in the trainer loop.
+- **Trainer**: decides how many steps to run, when to log, and when to checkpoint.
+- **Runtime**: executes the step, owns the optimizer update, and coordinates phase boundaries.
+- **Distributed features**: own behavior such as gradient sync, sharding, and pipeline scheduling.
 
-The MALTOS [trainer](https://github.com/xing7code/maltos/blob/main/train/trainer.py)
-is 90 lines. The training loop itself is 12 lines. Everything distributed lives
-in plugins.
+Keeping those boundaries clean is what lets the same high-level training loop
+survive as the system grows from single-GPU training to DDP, TP, PP, and ZeRO.
+The later articles in this series are really about swapping in those distributed
+behaviors without rewriting the trainer from scratch.
 
 ---
 
@@ -426,6 +441,6 @@ The next article covers the data pipeline in detail: how token shards are stored
 how memory-mapped access works, and how the data cursor is made deterministic and
 resumable across restarts and distributed configurations.
 
-The articles after that cover data parallelism and gradient reduction, tensor and
-sequence parallelism, and ZeRO optimizer sharding — each building on the
-single-GPU loop established here.
+After that, the series adds a short distributed-primitives primer before moving
+into data parallelism, tensor and sequence parallelism, and ZeRO optimizer
+sharding — each building on the single-GPU loop established here.

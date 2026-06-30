@@ -2,7 +2,7 @@
 layout: post
 title: "ZeRO Optimizer Sharding"
 description: "Adam's optimizer state is three times larger than the model. ZeRO-1, 2, and 3 progressively shard it across data-parallel ranks — with ZeRO-3 sharding the parameters themselves. This article covers how each stage works, why ZeRO-3 requires module-level all-gathers, and what it costs in communication."
-category: Pretraining Concepts · Part 5 of 8
+category: Pretraining Concepts · Part 6 of 9
 date: 2026-06-11
 read_time: 16 min read
 ---
@@ -387,7 +387,7 @@ The `exec_states` list has one entry per micro-step. Each micro-step has its own
 `grad_buffer` to accumulate into, preventing gradient contributions from different
 micro-steps from clobbering each other. The reduce-scatter runs once per optimizer
 step (not per micro-step) — it fires on the last micro-step when `is_step_boundary`
-is true, exactly like the DDP hook in Part 3.
+is true, exactly like the DDP hook in Part 4.
 
 ---
 

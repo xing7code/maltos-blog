@@ -79,8 +79,8 @@
         <h1>Pretraining Concepts</h1>
         <p>
           A first-principles tour of pretraining infrastructure: the training
-          loop, token streaming, distributed data flow, sharding, scheduling,
-          and MoE mechanics.
+          loop, token streaming, distributed communication, sharding,
+          scheduling, and MoE mechanics.
         </p>
       </section>
 
@@ -113,6 +113,19 @@
         <article class="post-row">
           <div class="meta">Chapter 3</div>
           <div>
+            <h2><a href="distributed-primitives.html">Distributed Primitives for LLM Training</a></h2>
+            <p>
+              Ranks, process groups, and the collective operations that the rest
+              of the series builds on: broadcast, all-reduce, all-gather,
+              reduce-scatter, and all-to-all.
+            </p>
+          </div>
+          <div class="status">Concepts</div>
+        </article>
+
+        <article class="post-row">
+          <div class="meta">Chapter 4</div>
+          <div>
             <h2><a href="data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></h2>
             <p>
               Synchronous all-reduce, bucketed async DDP, flat grad buffers, and
@@ -123,7 +136,7 @@
         </article>
 
         <article class="post-row">
-          <div class="meta">Chapter 4</div>
+          <div class="meta">Chapter 5</div>
           <div>
             <h2><a href="tensor-and-sequence-parallelism.html">Tensor and Sequence Parallelism</a></h2>
             <p>
@@ -135,7 +148,7 @@
         </article>
 
         <article class="post-row">
-          <div class="meta">Chapter 5</div>
+          <div class="meta">Chapter 6</div>
           <div>
             <h2><a href="zero-optimizer-sharding.html">ZeRO Optimizer Sharding</a></h2>
             <p>
@@ -147,7 +160,7 @@
         </article>
 
         <article class="post-row">
-          <div class="meta">Chapter 6</div>
+          <div class="meta">Chapter 7</div>
           <div>
             <h2><a href="pipeline-parallelism.html">Pipeline Parallelism</a></h2>
             <p>
@@ -159,7 +172,7 @@
         </article>
 
         <article class="post-row">
-          <div class="meta">Chapter 7</div>
+          <div class="meta">Chapter 8</div>
           <div>
             <h2><a href="context-parallelism.html">Context Parallelism</a></h2>
             <p>
@@ -171,7 +184,7 @@
         </article>
 
         <article class="post-row">
-          <div class="meta">Chapter 8</div>
+          <div class="meta">Chapter 9</div>
           <div>
             <h2><a href="moe-and-expert-parallelism.html">Mixture of Experts and Expert Parallelism</a></h2>
             <p>
