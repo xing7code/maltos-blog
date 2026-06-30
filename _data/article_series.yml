@@ -1,5 +1,7 @@
 tutorials:
   home_title: Pretraining Concepts
+  url_prefix: /blog/tutorials/
+  status: Concepts
   articles:
     - href: pretraining-loop-from-scratch.html
       title: The Pretraining Loop, From Scratch
@@ -22,9 +24,12 @@ tutorials:
 
 internals:
   home_title: Deep Dive
+  url_prefix: /blog/internals/
+  status: Deep dive
   articles:
     - href: maltos-a-modular-runtime-for-llm-training.html
       title: Runtime Overview
+      status: Overview
     - href: composable-parallelism.html
       title: Composable Parallelism
     - href: what-actually-gets-slow-on-8x4090-llm-training.html

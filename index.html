@@ -1,194 +1,95 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>MALTOS</title>
-    <meta
-      name="description"
-      content="Technical writing on LLM pretraining runtime design, distributed checkpointing, profiler traces, and post-training infrastructure."
-    >
-    <link rel="stylesheet" href="styles.css">
-    <script>
-  (function () {
-    var key = "maltos-theme";
-    var root = document.documentElement;
-    function preferredTheme() {
-      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-    }
-    function currentTheme() {
-      return root.getAttribute("data-theme") || preferredTheme();
-    }
-    function applyTheme(theme) {
-      root.setAttribute("data-theme", theme);
-      try { localStorage.setItem(key, theme); } catch (e) {}
-    }
-    try {
-      var saved = localStorage.getItem(key);
-      root.setAttribute("data-theme", saved === "dark" || saved === "light" ? saved : preferredTheme());
-    } catch (e) {
-      root.setAttribute("data-theme", preferredTheme());
-    }
-    document.addEventListener("DOMContentLoaded", function () {
-      var nav = document.querySelector(".nav-links");
-      if (!nav || nav.querySelector(".theme-toggle")) return;
-      var btn = document.createElement("button");
-      var icon = document.createElement("span");
-      var label = document.createElement("span");
-      btn.className = "theme-toggle";
-      btn.type = "button";
-      btn.setAttribute("aria-live", "polite");
-      icon.className = "theme-toggle-icon";
-      label.className = "theme-toggle-label";
-      btn.appendChild(icon);
-      btn.appendChild(label);
-      function sync() {
-        var dark = currentTheme() === "dark";
-        icon.textContent = dark ? "☀" : "☾";
-        label.textContent = dark ? "Light" : "Dark";
-        btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
-        btn.title = dark ? "Switch to light theme" : "Switch to dark theme";
-      }
-      btn.addEventListener("click", function () {
-        applyTheme(currentTheme() === "dark" ? "light" : "dark");
-        sync();
-      });
-      sync();
-      nav.appendChild(btn);
-    });
-  })();
-</script>
-  </head>
-  <body>
-    <header class="site-header">
-      <nav class="nav" aria-label="Primary">
-        <a class="brand" href="index.html">
-          <img class="brand-mark" src="assets/maltos-wordmark.svg" alt="MALTOS">
-        </a>
-        <div class="nav-links">
-          <a class="nav-button" href="https://github.com/xing7code/maltos">GitHub</a>
-        </div>
-      </nav>
-    </header>
+---
+layout: default
+title: MALTOS
+description: Technical writing on LLM pretraining runtime design, distributed checkpointing, profiler traces, and post-training infrastructure.
+---
 
-    <main>
-      <section class="home-slogan" aria-label="Site introduction">
-        <h1>A readable runtime for large-scale LLM training</h1>
-      </section>
+{% assign tutorial_series = site.data.article_series.tutorials %}
+{% assign internals_series = site.data.article_series.internals %}
 
-      <section class="home-section whats-new" aria-labelledby="whats-new-title">
-        <div class="home-section-head">
-          <h2 id="whats-new-title">What's new</h2>
-        </div>
-        <div class="whats-new-layout">
-          <article class="new-lead">
-            <div class="meta">Deep dive / Jun 12, 2026</div>
-            <h3><a href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">What Actually Gets Slow on 8x4090 LLM Training</a></h3>
-            <p>
-              An operational profile of MALTOS on a single 8x4090 node: once the
-              runtime is correct, which parallelism paths actually become slow —
-              and what kind of slow are they. Traces, ranked fixes, honest gaps.
-            </p>
-            <a class="read-link" href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">Read article</a>
-          </article>
+<main>
+  <section class="home-slogan" aria-label="Site introduction">
+    <h1>A readable runtime for large-scale LLM training</h1>
+  </section>
 
-          <div class="new-stack">
-            <article class="new-item">
-              <div class="meta">Deep dive / Jun 11, 2026</div>
-              <h3><a href="blog/internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h3>
-              <p>
-                Parallelism strategies do not naturally compose. What composes is
-                a protocol around model transforms, reducers, optimizer ownership,
-                checkpoint layout, and metric semantics.
-              </p>
-            </article>
+  <section class="home-section whats-new" aria-labelledby="whats-new-title">
+    <div class="home-section-head">
+      <h2 id="whats-new-title">What's new</h2>
+    </div>
+    <div class="whats-new-layout">
+      <article class="new-lead">
+        <div class="meta">Deep dive / Jun 12, 2026</div>
+        <h3><a href="{{ '/blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html' | relative_url }}">What Actually Gets Slow on 8x4090 LLM Training</a></h3>
+        <p>
+          An operational profile of MALTOS on a single 8x4090 node: once the
+          runtime is correct, which parallelism paths actually become slow —
+          and what kind of slow are they. Traces, ranked fixes, honest gaps.
+        </p>
+        <a class="read-link" href="{{ '/blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html' | relative_url }}">Read article</a>
+      </article>
 
-            <article class="new-item">
-              <div class="meta">Chapter 8</div>
-              <h3><a href="blog/tutorials/moe-and-expert-parallelism.html">Mixture of Experts and Expert Parallelism</a></h3>
-              <p>
-                Top-1 routing, all-to-all token dispatch, expert sharding, and how
-                expert gradients differ from shared grads.
-              </p>
-            </article>
-          </div>
-        </div>
-      </section>
+      <div class="new-stack">
+        <article class="new-item">
+          <div class="meta">Deep dive / Jun 11, 2026</div>
+          <h3><a href="{{ '/blog/internals/composable-parallelism.html' | relative_url }}">Why Composable Parallelism Is Hard</a></h3>
+          <p>
+            Parallelism strategies do not naturally compose. What composes is
+            a protocol around model transforms, reducers, optimizer ownership,
+            checkpoint layout, and metric semantics.
+          </p>
+        </article>
 
-      <section class="home-section" aria-labelledby="tutorial-title">
-        <div class="home-section-head">
-          <h2 id="tutorial-title">Pretraining Concepts</h2>
-          <a class="section-more" href="blog/tutorials/index.html">More</a>
-        </div>
-        <div class="home-card-grid">
-          <article class="article-card home-card">
-            <div class="article-card-body">
-              <div class="meta">Chapter 1</div>
-              <h3><a href="blog/tutorials/pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></h3>
-              <p>The minimal loop, what it leaves out, and how scaling pressure changes the shape of training code.</p>
-              <a class="read-link" href="blog/tutorials/pretraining-loop-from-scratch.html">Read article</a>
-            </div>
-          </article>
-          <article class="article-card home-card">
-            <div class="article-card-body">
-              <div class="meta">Chapter 2</div>
-              <h3><a href="blog/tutorials/how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></h3>
-              <p>Token shards, memory mapping, DP-aware streaming, and why dataloader cursor state matters for exact resume.</p>
-              <a class="read-link" href="blog/tutorials/how-we-store-and-stream-tokens.html">Read article</a>
-            </div>
-          </article>
-          <article class="article-card home-card">
-            <div class="article-card-body">
-              <div class="meta">Chapter 3</div>
-              <h3><a href="blog/tutorials/data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></h3>
-              <p>All-reduce, bucketed async DDP, flat grad buffers, and where data parallel semantics start leaking upward.</p>
-              <a class="read-link" href="blog/tutorials/data-parallelism-ddp.html">Read article</a>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section class="home-section" aria-labelledby="deep-dive-title">
-        <div class="home-section-head">
-          <h2 id="deep-dive-title">Deep Dive</h2>
-          <a class="section-more" href="blog/internals/index.html">More</a>
-        </div>
-        <div class="home-card-grid">
-          <article class="article-card home-card">
-            <div class="article-card-body">
-              <div class="meta">Overview</div>
-              <h3><a href="blog/internals/maltos-a-modular-runtime-for-llm-training.html">MALTOS: A Modular Runtime for LLM Training</a></h3>
-              <p>MALTOS aims to democratize LLM pretraining by transforming it from a specialized capability available only to a handful of large organizations into a modular and accessible platform for the broader AI community.</p>
-              <a class="read-link" href="blog/internals/maltos-a-modular-runtime-for-llm-training.html">Read article</a>
-            </div>
-          </article>
-          <article class="article-card home-card">
-            <div class="article-card-body">
-              <div class="meta">Composition</div>
-              <h3><a href="blog/internals/composable-parallelism.html">Why Composable Parallelism Is Hard</a></h3>
-              <p>What actually composes is a protocol around model transforms, reducers, optimizer ownership, checkpoint layout, and metrics.</p>
-              <a class="read-link" href="blog/internals/composable-parallelism.html">Read article</a>
-            </div>
-          </article>
-          <article class="article-card home-card">
-            <div class="article-card-body">
-              <div class="meta">Profile</div>
-              <h3><a href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">What Actually Gets Slow on 8x4090 LLM Training</a></h3>
-              <p>An operational profile on one PCIe 8x4090 node: which parallelism paths become slow once the runtime is correct, with traces and a ranked optimization roadmap.</p>
-              <a class="read-link" href="blog/internals/what-actually-gets-slow-on-8x4090-llm-training.html">Read article</a>
-            </div>
-          </article>
-        </div>
-      </section>
-    </main>
-
-    <footer class="site-footer">
-      <div class="footer-inner">
-        <span>MALTOS</span>
-        <span>Readable infrastructure notes for fast research.</span>
+        <article class="new-item">
+          <div class="meta">Chapter 9</div>
+          <h3><a href="{{ '/blog/tutorials/moe-and-expert-parallelism.html' | relative_url }}">Mixture of Experts and Expert Parallelism</a></h3>
+          <p>
+            Top-1 routing, all-to-all token dispatch, expert sharding, and how
+            expert gradients differ from shared grads.
+          </p>
+        </article>
       </div>
-    </footer>
-  </body>
-</html>
+    </div>
+  </section>
+
+  <section class="home-section" aria-labelledby="tutorial-title">
+    <div class="home-section-head">
+      <h2 id="tutorial-title">{{ tutorial_series.home_title }}</h2>
+      <a class="section-more" href="{{ '/blog/tutorials/index.html' | relative_url }}">More</a>
+    </div>
+    <div class="home-card-grid">
+      {% for item in tutorial_series.articles limit:3 %}
+        {% assign article_url = tutorial_series.url_prefix | append: item.href %}
+        {% assign article_page = site.pages | where: 'url', article_url | first %}
+        <article class="article-card home-card">
+          <div class="article-card-body">
+            <div class="meta">Chapter {{ forloop.index }}</div>
+            <h3><a href="{{ article_page.url | relative_url }}">{{ article_page.title | default: item.title }}</a></h3>
+            <p>{{ article_page.description }}</p>
+            <a class="read-link" href="{{ article_page.url | relative_url }}">Read article</a>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="home-section" aria-labelledby="deep-dive-title">
+    <div class="home-section-head">
+      <h2 id="deep-dive-title">{{ internals_series.home_title }}</h2>
+      <a class="section-more" href="{{ '/blog/internals/index.html' | relative_url }}">More</a>
+    </div>
+    <div class="home-card-grid">
+      {% for item in internals_series.articles %}
+        {% assign article_url = internals_series.url_prefix | append: item.href %}
+        {% assign article_page = site.pages | where: 'url', article_url | first %}
+        <article class="article-card home-card">
+          <div class="article-card-body">
+            <div class="meta">{{ item.status | default: internals_series.status }}</div>
+            <h3><a href="{{ article_page.url | relative_url }}">{{ article_page.title | default: item.title }}</a></h3>
+            <p>{{ article_page.description }}</p>
+            <a class="read-link" href="{{ article_page.url | relative_url }}">Read article</a>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+</main>

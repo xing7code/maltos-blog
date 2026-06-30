@@ -1,6 +1,8 @@
 {% assign is_learn = page.url contains '/blog/learn/' %}
 {% assign is_internals = page.url contains '/blog/internals/' %}
 {% assign is_tutorials = page.url contains '/blog/tutorials/' %}
+{% assign tutorial_series = site.data.article_series.tutorials %}
+{% assign internals_series = site.data.article_series.internals %}
 
 <nav class="manual-nav" aria-label="Manual contents">
   {% if is_learn %}
@@ -28,28 +30,23 @@
       </ul>
     </details>
   {% elsif is_tutorials %}
-    <a class="manual-nav-home" href="index.html">Pretraining Concepts</a>
+    <a class="manual-nav-home" href="index.html">{{ tutorial_series.home_title }}</a>
     <details open>
       <summary>Series</summary>
       <ul>
-        <li><a href="pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></li>
-        <li><a href="how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></li>
-        <li><a href="distributed-primitives.html">Distributed Primitives for LLM Training</a></li>
-        <li><a href="data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></li>
-        <li><a href="zero-optimizer-sharding.html">ZeRO Optimizer Sharding</a></li>
-        <li><a href="tensor-and-sequence-parallelism.html">Tensor and Sequence Parallelism</a></li>
-        <li><a href="pipeline-parallelism.html">Pipeline Parallelism</a></li>
-        <li><a href="context-parallelism.html">Context Parallelism</a></li>
-        <li><a href="moe-and-expert-parallelism.html">Mixture of Experts and Expert Parallelism</a></li>
+        {% for item in tutorial_series.articles %}
+          <li><a href="{{ item.href }}">{{ item.title }}</a></li>
+        {% endfor %}
       </ul>
     </details>
   {% elsif is_internals %}
-    <a class="manual-nav-home" href="index.html">Deep Dive</a>
+    <a class="manual-nav-home" href="index.html">{{ internals_series.home_title }}</a>
     <details open>
       <summary>Articles</summary>
       <ul>
-        <li><a href="maltos-a-modular-runtime-for-llm-training.html">Runtime Overview</a></li>
-        <li><a href="composable-parallelism.html">Composable Parallelism</a></li>
+        {% for item in internals_series.articles %}
+          <li><a href="{{ item.href }}">{{ item.title }}</a></li>
+        {% endfor %}
       </ul>
     </details>
   {% endif %}

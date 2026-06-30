@@ -1,207 +1,34 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Pretraining Concepts - MALTOS</title>
-    <meta
-      name="description"
-      content="A concept-first series on LLM pretraining infrastructure: training loops, data streaming, DDP, TP/SP, ZeRO, PP, CP, and MoE."
-    >
-    <link rel="stylesheet" href="../../styles.css">
-    <script>
-  (function () {
-    var key = "maltos-theme";
-    var root = document.documentElement;
-    function preferredTheme() {
-      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-    }
-    function currentTheme() {
-      return root.getAttribute("data-theme") || preferredTheme();
-    }
-    function applyTheme(theme) {
-      root.setAttribute("data-theme", theme);
-      try { localStorage.setItem(key, theme); } catch (e) {}
-    }
-    try {
-      var saved = localStorage.getItem(key);
-      root.setAttribute("data-theme", saved === "dark" || saved === "light" ? saved : preferredTheme());
-    } catch (e) {
-      root.setAttribute("data-theme", preferredTheme());
-    }
-    document.addEventListener("DOMContentLoaded", function () {
-      var nav = document.querySelector(".nav-links");
-      if (!nav || nav.querySelector(".theme-toggle")) return;
-      var btn = document.createElement("button");
-      var icon = document.createElement("span");
-      var label = document.createElement("span");
-      btn.className = "theme-toggle";
-      btn.type = "button";
-      btn.setAttribute("aria-live", "polite");
-      icon.className = "theme-toggle-icon";
-      label.className = "theme-toggle-label";
-      btn.appendChild(icon);
-      btn.appendChild(label);
-      function sync() {
-        var dark = currentTheme() === "dark";
-        icon.textContent = dark ? "☀" : "☾";
-        label.textContent = dark ? "Light" : "Dark";
-        btn.setAttribute("aria-label", dark ? "Switch to light theme" : "Switch to dark theme");
-        btn.title = dark ? "Switch to light theme" : "Switch to dark theme";
-      }
-      btn.addEventListener("click", function () {
-        applyTheme(currentTheme() === "dark" ? "light" : "dark");
-        sync();
-      });
-      sync();
-      nav.appendChild(btn);
-    });
-  })();
-</script>
-  </head>
-  <body>
-    <header class="site-header">
-      <nav class="nav" aria-label="Primary">
-        <a class="brand" href="../../index.html">
-          <img class="brand-mark" src="../../assets/maltos-wordmark.svg" alt="MALTOS">
-        </a>
-        <div class="nav-links">
-          <a class="nav-button" href="https://github.com/xing7code/maltos">GitHub</a>
+---
+layout: default
+title: Pretraining Concepts
+description: A concept-first series on LLM pretraining infrastructure: training loops, data streaming, distributed communication, DDP, TP/SP, ZeRO, PP, CP, and MoE.
+---
+
+{% assign series = site.data.article_series.tutorials %}
+
+<main>
+  <section class="page-title">
+    <p class="eyebrow">Concept Series</p>
+    <h1>{{ series.home_title }}</h1>
+    <p>
+      A first-principles tour of pretraining infrastructure: the training
+      loop, token streaming, distributed communication, sharding,
+      scheduling, and MoE mechanics.
+    </p>
+  </section>
+
+  <section class="post-list" aria-label="Tutorial posts">
+    {% for item in series.articles %}
+      {% assign article_url = series.url_prefix | append: item.href %}
+      {% assign article_page = site.pages | where: 'url', article_url | first %}
+      <article class="post-row">
+        <div class="meta">Chapter {{ forloop.index }}</div>
+        <div>
+          <h2><a href="{{ article_page.url | relative_url }}">{{ article_page.title | default: item.title }}</a></h2>
+          <p>{{ article_page.description }}</p>
         </div>
-      </nav>
-    </header>
-
-    <main>
-      <section class="page-title">
-        <p class="eyebrow">Concept Series</p>
-        <h1>Pretraining Concepts</h1>
-        <p>
-          A first-principles tour of pretraining infrastructure: the training
-          loop, token streaming, distributed communication, sharding,
-          scheduling, and MoE mechanics.
-        </p>
-      </section>
-
-      <section class="post-list" aria-label="Tutorial posts">
-        <article class="post-row">
-          <div class="meta">Chapter 1</div>
-          <div>
-            <h2><a href="pretraining-loop-from-scratch.html">The Pretraining Loop, From Scratch</a></h2>
-            <p>
-              The minimal training loop, what it leaves out, and how the
-              structure evolves once gradient accumulation, checkpointing, and
-              scaling pressure show up.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 2</div>
-          <div>
-            <h2><a href="how-we-store-and-stream-tokens.html">How We Store and Stream Tokens</a></h2>
-            <p>
-              Token shards, memory mapping, DP-aware data streaming, and why
-              dataloader cursor state is a first-class part of exact resume.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 3</div>
-          <div>
-            <h2><a href="distributed-primitives.html">Distributed Primitives for LLM Training</a></h2>
-            <p>
-              Ranks, process groups, and the collective operations that the rest
-              of the series builds on: broadcast, all-reduce, all-gather,
-              reduce-scatter, and all-to-all.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 4</div>
-          <div>
-            <h2><a href="data-parallelism-ddp.html">Data Parallelism and Gradient Reduction</a></h2>
-            <p>
-              Synchronous all-reduce, bucketed async DDP, flat grad buffers, and
-              where data-parallel semantics start leaking into the training loop.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 5</div>
-          <div>
-            <h2><a href="tensor-and-sequence-parallelism.html">Tensor and Sequence Parallelism</a></h2>
-            <p>
-              Sharding weight matrices and activations across GPUs, with TP
-              layer rewrites and SP sequence-layout hooks.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 6</div>
-          <div>
-            <h2><a href="zero-optimizer-sharding.html">ZeRO Optimizer Sharding</a></h2>
-            <p>
-              ZeRO-1, ZeRO-2, and ZeRO-3 from a runtime perspective: what gets
-              sharded, how buckets work, and why factory-owned optimizers matter.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 7</div>
-          <div>
-            <h2><a href="pipeline-parallelism.html">Pipeline Parallelism</a></h2>
-            <p>
-              Splitting model depth across stages, microbatch schedules,
-              pipeline bubbles, and the basic send/receive model.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 8</div>
-          <div>
-            <h2><a href="context-parallelism.html">Context Parallelism</a></h2>
-            <p>
-              Sharding long sequences across GPUs with all-gather KV and ring
-              attention, plus zigzag assignment and CP-specific memory math.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-
-        <article class="post-row">
-          <div class="meta">Chapter 9</div>
-          <div>
-            <h2><a href="moe-and-expert-parallelism.html">Mixture of Experts and Expert Parallelism</a></h2>
-            <p>
-              Top-1 routing, all-to-all token dispatch, expert sharding, and how
-              expert gradients differ from shared grads.
-            </p>
-          </div>
-          <div class="status">Concepts</div>
-        </article>
-      </section>
-    </main>
-
-    <footer class="site-footer">
-      <div class="footer-inner">
-        <span>MALTOS</span>
-        <span><a href="../../index.html">Home</a></span>
-      </div>
-    </footer>
-  </body>
-</html>
+        <div class="status">{{ item.status | default: series.status }}</div>
+      </article>
+    {% endfor %}
+  </section>
+</main>
