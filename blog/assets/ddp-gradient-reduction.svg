@@ -1,125 +1,124 @@
-<svg width="1200" height="520" viewBox="0 0 1200 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
-      .title { font: 700 28px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
-      .subtitle { font: 500 14px Inter, ui-sans-serif, system-ui, sans-serif; fill: #64748b; }
-      .label { font: 700 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
-      .code { font: 600 12px "JetBrains Mono", "Fira Code", ui-monospace, monospace; fill: #1e293b; }
-      .small { font: 500 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #475569; }
-      .note { font: 500 12px Inter, ui-sans-serif, system-ui, sans-serif; fill: #6b7280; }
-      .highlight { font: 700 12px Inter, ui-sans-serif, system-ui, sans-serif; fill: #059669; }
-      .edge { stroke: #334155; stroke-width: 2; stroke-linecap: round; marker-end: url(#arrow); fill: none; }
-      .comm { stroke: #7c3aed; stroke-width: 2; stroke-linecap: round; stroke-dasharray: 5 3; fill: none; }
+      .title { font: 700 30px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
+      .subtitle { font: 500 15px Inter, ui-sans-serif, system-ui, sans-serif; fill: #64748b; }
+      .card-title { font: 700 18px Inter, ui-sans-serif, system-ui, sans-serif; fill: #111827; }
+      .card-note { font: 500 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #475569; }
+      .lane { font: 600 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #334155; }
+      .small { font: 600 12px "JetBrains Mono", "Fira Code", ui-monospace, monospace; fill: #0f172a; }
+      .axis-label { font: 600 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #475569; }
+      .callout-strong { font: 700 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #065f46; }
+      .callout-soft { font: 600 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #7c2d12; }
+      .callout-mid { font: 600 13px Inter, ui-sans-serif, system-ui, sans-serif; fill: #5b21b6; }
+      .axis { stroke: #94a3b8; stroke-width: 2; marker-end: url(#arrow); }
+      .divider { stroke: #e2e8f0; stroke-width: 1.5; stroke-dasharray: 5 5; }
     </style>
     <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
-      <path d="M2 2 L9 5 L2 8 Z" fill="#334155"/>
+      <path d="M2 2 L9 5 L2 8 Z" fill="#94a3b8"/>
     </marker>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#0f172a" flood-opacity="0.09"/>
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.08"/>
     </filter>
   </defs>
 
-  <rect width="1200" height="520" rx="28" fill="#f8fafc"/>
-  <text x="60" y="60" class="title">DDP Gradient Reduction: Naive vs. Bucketed</text>
-  <text x="60" y="86" class="subtitle">Naive DDP blocks backward until all-reduce completes. Bucketed DDP overlaps communication with backward computation.</text>
+  <rect width="1200" height="760" rx="28" fill="#f8fafc"/>
 
-  <!-- Left: Naive DDP -->
-  <text x="120" y="126" class="label" text-anchor="middle">Naive DDP  (synchronous all-reduce)</text>
+  <text x="60" y="62" class="title">DDP Gradient Reduction Timelines</text>
+  <text x="60" y="90" class="subtitle">Same backward pass, three communication strategies: no overlap, per-parameter overlap, and bucketed overlap.</text>
 
-  <!-- 4 GPU boxes for naive -->
-  <rect x="20" y="140" width="100" height="60" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
-  <text x="70" y="164" class="small" text-anchor="middle">GPU 0</text>
-  <text x="70" y="182" class="code" text-anchor="middle">grad_W₀</text>
+  <line x1="300" y1="122" x2="1120" y2="122" class="axis"/>
+  <text x="1082" y="110" class="axis-label">time</text>
 
-  <rect x="20" y="220" width="100" height="60" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
-  <text x="70" y="244" class="small" text-anchor="middle">GPU 1</text>
-  <text x="70" y="262" class="code" text-anchor="middle">grad_W₁</text>
+  <rect x="40" y="150" width="1120" height="170" rx="20" fill="#ffffff" stroke="#dbe4ee" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="68" y="188" class="card-title">1. Post-backward sync</text>
+  <text x="68" y="210" class="card-note">Correct and simple, but communication starts only after backward finishes.</text>
 
-  <rect x="20" y="300" width="100" height="60" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
-  <text x="70" y="324" class="small" text-anchor="middle">GPU 2</text>
-  <text x="70" y="342" class="code" text-anchor="middle">grad_W₂</text>
+  <text x="68" y="246" class="lane">Backward</text>
+  <text x="68" y="286" class="lane">Network</text>
 
-  <rect x="20" y="380" width="100" height="60" rx="10" fill="#dbeafe" stroke="#2563eb" stroke-width="2" filter="url(#shadow)"/>
-  <text x="70" y="404" class="small" text-anchor="middle">GPU 3</text>
-  <text x="70" y="422" class="code" text-anchor="middle">grad_W₃</text>
+  <rect x="300" y="228" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="420" y="228" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="540" y="228" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="660" y="228" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <text x="350" y="247" class="small" text-anchor="middle">bwd p3</text>
+  <text x="470" y="247" class="small" text-anchor="middle">bwd p2</text>
+  <text x="590" y="247" class="small" text-anchor="middle">bwd p1</text>
+  <text x="710" y="247" class="small" text-anchor="middle">bwd p0</text>
 
-  <!-- All-reduce -->
-  <rect x="145" y="230" width="110" height="80" rx="10" fill="#ede9fe" stroke="#7c3aed" stroke-width="2" filter="url(#shadow)"/>
-  <text x="200" y="262" class="small" text-anchor="middle">all_reduce</text>
-  <text x="200" y="279" class="small" text-anchor="middle">(blocks!)</text>
-  <text x="200" y="296" class="code" text-anchor="middle">avg(g₀,g₁,g₂,g₃)</text>
+  <rect x="820" y="268" width="68" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="898" y="268" width="68" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="976" y="268" width="68" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="1054" y="268" width="68" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="854" y="287" class="small" text-anchor="middle">AR p3</text>
+  <text x="932" y="287" class="small" text-anchor="middle">AR p2</text>
+  <text x="1010" y="287" class="small" text-anchor="middle">AR p1</text>
+  <text x="1088" y="287" class="small" text-anchor="middle">AR p0</text>
 
-  <!-- Comm arrows from GPU to all-reduce -->
-  <path d="M 120 170 L 145 265" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>
-  <path d="M 120 250 L 145 270" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>
-  <path d="M 120 330 L 145 275" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>
-  <path d="M 120 410 L 145 290" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>
+  <line x1="780" y1="220" x2="780" y2="306" class="divider"/>
+  <text x="822" y="236" class="callout-soft">No overlap: GPU finishes backward, then waits for AR calls.</text>
 
-  <!-- Result -->
-  <rect x="275" y="250" width="100" height="44" rx="10" fill="#ecfdf5" stroke="#059669" stroke-width="2" filter="url(#shadow)"/>
-  <text x="325" y="270" class="small" text-anchor="middle">averaged</text>
-  <text x="325" y="287" class="small" text-anchor="middle">gradient</text>
+  <rect x="40" y="340" width="1120" height="170" rx="20" fill="#ffffff" stroke="#dbe4ee" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="68" y="378" class="card-title">2. Per-parameter async</text>
+  <text x="68" y="400" class="card-note">Launch AR as soon as each gradient is ready, so communication overlaps with later backward work.</text>
 
-  <line x1="255" y1="272" x2="273" y2="272" class="edge"/>
+  <text x="68" y="436" class="lane">Backward</text>
+  <text x="68" y="476" class="lane">Network</text>
 
-  <text x="205" y="345" class="note" text-anchor="middle">backward: wait</text>
-  <text x="205" y="361" class="note" text-anchor="middle">→ all-reduce → wait</text>
-  <text x="205" y="377" class="note" text-anchor="middle">→ optimizer.step()</text>
+  <rect x="300" y="418" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="420" y="418" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="540" y="418" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="660" y="418" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <text x="350" y="437" class="small" text-anchor="middle">bwd p3</text>
+  <text x="470" y="437" class="small" text-anchor="middle">bwd p2</text>
+  <text x="590" y="437" class="small" text-anchor="middle">bwd p1</text>
+  <text x="710" y="437" class="small" text-anchor="middle">bwd p0</text>
 
-  <!-- Divider -->
-  <line x1="420" y1="120" x2="420" y2="480" stroke="#cbd5e1" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <rect x="370" y="458" width="120" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="490" y="458" width="120" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="610" y="458" width="120" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <rect x="730" y="458" width="120" height="30" rx="8" fill="#e9d5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="430" y="477" class="small" text-anchor="middle">AR p3</text>
+  <text x="550" y="477" class="small" text-anchor="middle">AR p2</text>
+  <text x="670" y="477" class="small" text-anchor="middle">AR p1</text>
+  <text x="790" y="477" class="small" text-anchor="middle">AR p0</text>
 
-  <!-- Right: Bucketed DDP -->
-  <text x="810" y="126" class="label" text-anchor="middle">Bucketed DDP  (async overlap)</text>
+  <text x="870" y="436" class="callout-mid">Overlap starts early.</text>
+  <text x="870" y="458" class="callout-mid">Still one AR per parameter.</text>
+  <text x="870" y="480" class="callout-mid">Large models create many tiny NCCL ops.</text>
 
-  <!-- Timeline boxes for bucketed DDP -->
-  <!-- GPU 0 timeline -->
-  <text x="455" y="158" class="note">GPU 0</text>
-  <rect x="490" y="140" width="90" height="30" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-  <text x="535" y="160" class="code" text-anchor="middle">bwd layer3</text>
-  <rect x="590" y="140" width="90" height="30" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-  <text x="635" y="160" class="code" text-anchor="middle">bwd layer2</text>
-  <rect x="690" y="140" width="90" height="30" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-  <text x="735" y="160" class="code" text-anchor="middle">bwd layer1</text>
-  <rect x="790" y="140" width="90" height="30" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1.5"/>
-  <text x="835" y="160" class="code" text-anchor="middle">bwd layer0</text>
-  <rect x="890" y="140" width="120" height="30" rx="6" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
-  <text x="950" y="160" class="code" text-anchor="middle">optimizer.step()</text>
+  <rect x="40" y="530" width="1120" height="190" rx="20" fill="#ffffff" stroke="#dbe4ee" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="68" y="568" class="card-title">3. Bucketed async</text>
+  <text x="68" y="590" class="card-note">Keep the overlap idea, but batch many gradients into a flat buffer before launching AR.</text>
 
-  <!-- Bucket all-reduce overlapping backward -->
-  <text x="455" y="198" class="note">Network</text>
-  <rect x="590" y="178" width="90" height="22" rx="5" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
-  <text x="635" y="193" class="code" text-anchor="middle">ar bucket2</text>
-  <rect x="690" y="178" width="90" height="22" rx="5" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
-  <text x="735" y="193" class="code" text-anchor="middle">ar bucket1</text>
-  <rect x="790" y="178" width="90" height="22" rx="5" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
-  <text x="835" y="193" class="code" text-anchor="middle">ar bucket0</text>
+  <text x="68" y="626" class="lane">Backward</text>
+  <text x="68" y="666" class="lane">Bucket fill</text>
+  <text x="68" y="706" class="lane">Network</text>
 
-  <!-- Arrow showing overlap -->
-  <text x="455" y="230" class="highlight">↑ communication overlaps with backward — no stall</text>
+  <rect x="300" y="608" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="420" y="608" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="540" y="608" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <rect x="660" y="608" width="100" height="30" rx="8" fill="#fde68a" stroke="#d97706" stroke-width="1.5"/>
+  <text x="350" y="627" class="small" text-anchor="middle">bwd p3</text>
+  <text x="470" y="627" class="small" text-anchor="middle">bwd p2</text>
+  <text x="590" y="627" class="small" text-anchor="middle">bwd p1</text>
+  <text x="710" y="627" class="small" text-anchor="middle">bwd p0</text>
 
-  <!-- Bucket structure illustration -->
-  <text x="455" y="268" class="label">How buckets work</text>
+  <rect x="370" y="648" width="120" height="30" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+  <rect x="490" y="648" width="120" height="30" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+  <rect x="610" y="648" width="120" height="30" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+  <rect x="730" y="648" width="120" height="30" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="430" y="667" class="small" text-anchor="middle">p3 -&gt; bucket0</text>
+  <text x="550" y="667" class="small" text-anchor="middle">p2 -&gt; bucket0</text>
+  <text x="670" y="667" class="small" text-anchor="middle">p1 -&gt; bucket1</text>
+  <text x="790" y="667" class="small" text-anchor="middle">p0 -&gt; bucket1</text>
 
-  <text x="455" y="295" class="note">Model parameters (reversed order = backward order):</text>
-  <rect x="455" y="305" width="140" height="40" rx="8" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5"/>
-  <text x="525" y="321" class="small" text-anchor="middle">Bucket 0</text>
-  <text x="525" y="337" class="note" text-anchor="middle">layers 0–2 params</text>
+  <rect x="530" y="688" width="170" height="30" rx="8" fill="#dcfce7" stroke="#059669" stroke-width="1.5"/>
+  <rect x="770" y="688" width="170" height="30" rx="8" fill="#dcfce7" stroke="#059669" stroke-width="1.5"/>
+  <text x="615" y="707" class="small" text-anchor="middle">AR bucket0</text>
+  <text x="855" y="707" class="small" text-anchor="middle">AR bucket1</text>
 
-  <rect x="615" y="305" width="140" height="40" rx="8" fill="#ede9fe" stroke="#7c3aed" stroke-width="1.5"/>
-  <text x="685" y="321" class="small" text-anchor="middle">Bucket 1</text>
-  <text x="685" y="337" class="note" text-anchor="middle">layers 3–5 params</text>
-
-  <rect x="775" y="305" width="140" height="40" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
-  <text x="845" y="321" class="small" text-anchor="middle">Bucket 2</text>
-  <text x="845" y="337" class="note" text-anchor="middle">layers 6–8 params</text>
-
-  <text x="455" y="378" class="note">Flat contiguous buffer per bucket → single NCCL op per bucket</text>
-  <text x="455" y="396" class="note">Hook fires when last param in bucket accumulates → triggers async all_reduce</text>
-  <text x="455" y="414" class="note">POST_BACKWARD phase: wait() on all bucket handles before optimizer.step()</text>
-
-  <!-- Memory benefit note -->
-  <rect x="455" y="435" width="700" height="48" rx="10" fill="#f0fdf4" stroke="#059669" stroke-width="1.5"/>
-  <text x="805" y="456" class="small" text-anchor="middle">Default bucket size: 25MB. Tune bucket_mb_size larger to reduce #NCCL ops,</text>
-  <text x="805" y="473" class="small" text-anchor="middle">smaller to start comm earlier. At the extreme (1 bucket = entire model), becomes synchronous.</text>
+  <text x="870" y="626" class="callout-strong">Keeps the overlap from async.</text>
+  <text x="870" y="648" class="callout-strong">AR launches per bucket, not per parameter.</text>
+  <text x="870" y="670" class="callout-strong">That is why production DDP uses buckets.</text>
 </svg>

@@ -10,47 +10,51 @@ read_time: 15 min read
 # Tensor and Sequence Parallelism
 
 Data parallelism replicates the model and distributes the data. Tensor parallelism
-does the opposite: it replicates the data (input activations) and distributes the
-model (weight matrices). Each GPU holds a slice of the weight matrix, performs a
-partial matrix multiply, and the results are combined with a collective communication
-operation.
+does the opposite: within a TP group, every rank sees the same input activations,
+but each rank holds only a slice of the model weights. Each GPU performs its local
+piece of the matrix multiply, and the results are combined with a collective
+communication operation.
 
 Sequence parallelism extends this by sharding the activations between layers across
 the sequence dimension, cutting activation memory by a factor of the TP world size.
 
 Together, TP and SP are the workhorses of large-model training. Data parallelism
 alone doesn't solve the memory problem — each DDP replica still holds the full
-model. A 70B-parameter model at 12 bytes/param needs ~840 GB; no single GPU has
-that. TP splits the model itself across GPUs, so each device only holds `1/N` of
-each weight matrix while remaining fully busy with computation.
+model. A 70B-parameter model is already about **140 GB just for bf16 weights**
+(70B x 2 bytes), and the full training state is much larger once gradients and
+optimizer state are included. No single GPU can hold that comfortably. TP splits
+the model itself across GPUs, so each device only holds `1/N` of each weight
+matrix while remaining fully busy with computation.
 
 ---
 
 ## Why You Need Both Column and Row Sharding
 
-Consider a single weight matrix `W` of shape `[d_in, d_out]`. The computation is
-`Y = X @ W`. There are two natural ways to shard `W` across `N` devices:
+Consider one linear layer, `Y = X @ W`, where `W` has shape `[d_in, d_out]`.
+There are two natural ways to split that matrix across `N` devices.
 
-**Column sharding** (shard along `d_out`): split `W` into `N` column slices.
-Each device holds `W_i` of shape `[d_in, d_out/N]`. Each device computes
-`Y_i = X @ W_i`, giving a partial output of shape `[B, T, d_out/N]`. The full
-output `Y = concat(Y_0, ..., Y_{N-1})` along the last dimension.
+**Column sharding** means splitting `W` by output columns. Each device stores a
+slice of shape `[d_in, d_out/N]` and multiplies the full input `X` by its local
+slice. The result is one shard of the output features, so the final output is
+formed by concatenating all devices' results along the feature dimension.
 
-**Row sharding** (shard along `d_in`): split `W` into `N` row slices.
-Each device holds `W_i` of shape `[d_in/N, d_out]`. Each device also takes a
-slice of `X` along its feature dimension: `X_i = X[:, :, i*d_in/N:(i+1)*d_in/N]`.
-Then `Z_i = X_i @ W_i` is a partial result of the correct output shape
-`[B, T, d_out]`, but only a fraction of the correct value. The full output
-is `Z = sum(Z_0, ..., Z_{N-1})`, which requires an all-reduce.
+**Row sharding** means splitting `W` by input rows. Now each device stores a
+slice of shape `[d_in/N, d_out]`, and each device also receives the matching
+slice of the input activations. Every device produces a partial contribution to
+the full output, and those partial outputs must be summed across devices. That
+sum is an all-reduce.
 
-A transformer MLP block is two linear layers: `FFN(x) = GELU(x @ W_1) @ W_2`.
+A transformer MLP block is just two linear layers with a nonlinearity in between:
+`FFN(x) = GELU(x @ W_1) @ W_2`.
 The canonical TP sharding is:
+
 - `W_1`: column sharding → `ColumnParallelLinear`
 - `W_2`: row sharding → `RowParallelLinear`
 
 This pairing avoids an all-reduce between the two layers: the column-parallel layer
-produces sharded outputs that are exactly the right inputs for the row-parallel layer.
-Only one all-reduce is needed, at the output of `W_2`.
+produces sharded outputs, and those shards are already exactly what the
+row-parallel layer expects as input. So the two layers compose cleanly, and only
+one all-reduce is needed at the output of `W_2`.
 
 ---
 
@@ -71,18 +75,13 @@ class ColumnParallelLinear(nn.Module):
         self.weight = nn.Parameter(
             torch.zeros(out_features // world_size, in_features)
         )  # local weight: [d_out/N, d_in]
-        # PyTorch's nn.Linear stores weight as [out_features, in_features];
-        # F.linear(x, w) computes x @ w.T, so this column-sharded slice is correct.
         self.tp_group = tp_group
         self.gather_output = gather_output
 
     def forward(self, x):
         # x: [B, T, d_in] — replicated on all ranks
-        # CopyToModelParallelRegion is a custom autograd function:
-        #   forward: identity (no-op)
-        #   backward: all-reduce of dL/dX across the TP group
-        # This is where the input gradient all-reduce happens.
-        x = CopyToModelParallelRegion.apply(x, self.tp_group)
+        # In backward, dL/dx from all TP ranks must be summed.
+        x = mark_input_as_replicated(x, self.tp_group)
         y = F.linear(x, self.weight)  # [B, T, d_out/N] — sharded
         if self.gather_output:
             # all-gather: used when the next layer expects full output
@@ -90,14 +89,14 @@ class ColumnParallelLinear(nn.Module):
         return y
 ```
 
-The input `x` is replicated across all TP ranks. Each rank's local forward pass
-is a standard matrix multiply against its local weight slice. No communication is
-needed before or during the matmul.
+The input `x` is visible on all TP ranks. Each rank's local forward pass is just
+a standard matrix multiply against its own output-column slice. No communication
+is needed before or during the matmul.
 
 The output is sharded: each rank has `Y_i` of shape `[B, T, d_out/N]`. If the next
-layer is `RowParallelLinear`, this is exactly what it expects. If the next layer
-expects the full output (for example, at the end of the model), `gather_output=True`
-triggers an all-gather.
+layer is `RowParallelLinear`, that sharded output is already in the right layout.
+If some later step needs the full feature dimension, `gather_output=True` triggers
+an all-gather.
 
 ---
 
@@ -137,57 +136,56 @@ this is where sequence parallelism enters — more on this below.
 
 ## Attention Layer Sharding
 
-The attention block has a similar structure. Query, key, and value projections:
+It is often clearest to write attention in per-rank shapes.
 
-```
-Q = X @ W_q     W_q: [d_model, d_head × n_heads]
-K = X @ W_k     W_k: [d_model, d_head × n_heads]
-V = X @ W_v     W_v: [d_model, d_head × n_heads]
-```
+For one TP rank:
 
-All three are column-parallel: each TP rank handles a subset of attention heads.
-Rank `i` computes attention between its own Q_i, K_i, V_i slices — no
-inter-rank communication needed during attention computation.
-
-**Grouped-query attention (GQA)**: modern models (e.g., LLaMA 3, Mistral) use
-fewer KV heads than Q heads (e.g., 8 KV heads vs. 32 Q heads). With TP, the
-column-sharding constraint is that `num_heads_kv` must be divisible by `tp_world_size`
-— otherwise some TP ranks would have an unequal number of KV heads. At tp=4 with
-8 KV heads, each rank has 2 KV heads and 8 Q heads, which is valid. At tp=8 with
-8 KV heads, each rank has 1 KV head — still valid. At tp=16 with 8 KV heads, the
-division is impossible. MALTOS caps TP at the KV head count in this case;
-production systems (e.g., Megatron-LM) instead *replicate* KV heads across the
-extra ranks — each KV head is duplicated on tp/num_kv_heads ranks — trading a
-little memory to keep scaling. The output projection is row-parallel:
-
-```
-O = Softmax(QKᵀ/√d) @ V @ W_o     W_o: [d_head × n_heads, d_model]
+```text
+Q  = X @ W_q    W_q: [d_model, d_head x n_q_heads_per_rank]
+K  = X @ W_k    W_k: [d_model, d_head x n_kv_heads_per_rank]
+V  = X @ W_v    W_v: [d_model, d_head x n_kv_heads_per_rank]
 ```
 
-The result is again an all-reduce at the end of the attention block. The pattern is
-the same as the MLP: column → computation → row → all-reduce.
+All three projections are still column-parallel: TP is applied to **Q, K, and V**.
+Each rank owns a subset of heads and computes its local Q/K/V slices from the
+replicated input `X`.
 
-In MALTOS, the model specifies this sharding through a `TpSpParallelSpec` that
-lists each submodule path and its sharding axis. The `TensorParallelPlugin` reads
-the spec during `transform_model` and swaps `nn.Linear` modules in place:
+In standard multi-head attention, `n_q_heads_per_rank = n_kv_heads_per_rank`.
+In grouped-query attention (GQA), they differ: Q has more heads than K/V. For
+example, with 32 Q heads, 8 KV heads, and `tp=4`, each rank gets 8 Q heads but
+only 2 KV heads.
 
-```python
-# From tp.py
-for rule in spec.rules:
-    module = model.get_submodule(rule.module_path)
-    if rule.shard_axis == TpSpShardAxis.PARAM_OUT:
-        model.set_submodule(rule.module_path,
-            ColumnParallelLinear.from_linear(module, self.tp_group, ...))
-    elif rule.shard_axis == TpSpShardAxis.PARAM_IN:
-        model.set_submodule(rule.module_path,
-            RowParallelLinear.from_linear(module, self.tp_group, ...))
+That is why GQA creates an extra TP constraint on the KV side: `num_kv_heads`
+must still divide cleanly across TP ranks unless the system is willing to
+replicate KV heads. The Q projection is still sharded normally; it is the smaller
+KV head count that becomes the bottleneck.
+
+After the local attention computation, the per-rank attention output has shape:
+
+```text
+VO = softmax(QK^T / sqrt(d_head)) @ V
+VO: [B, T, d_head x n_q_heads_per_rank]
 ```
 
-The `from_linear` class method extracts this rank's weight slice from the original
-`nn.Linear` (e.g., columns `[rank * d_out/N : (rank+1) * d_out/N]` for column
-sharding) and constructs a new module with only that slice as its `weight` parameter.
-The original `nn.Linear` module is discarded; only the local slice lives in memory.
-The rest of the model is unchanged.
+That last dimension matches the **local query-head count**, not the local KV-head
+count. Even in GQA, each query head produces its own `d_head` output vector.
+
+The output projection then consumes that local head slice:
+
+```text
+output_partial = VO @ W_o
+W_o: [d_head x n_q_heads_per_rank, d_model]
+```
+
+`W_o` is row-parallel for the same reason `W_2` in the MLP is row-parallel: the
+input to this projection is already sharded across ranks. Each rank multiplies its
+local `VO` slice by its local rows of `W_o`, producing a partial contribution to
+the final `[B, T, d_model]` output. Those partial outputs are summed with an
+all-reduce.
+
+So attention follows the same overall TP pattern as the MLP:
+column-parallel projections → local computation → row-parallel output projection
+→ all-reduce.
 
 ---
 
@@ -202,43 +200,50 @@ memory wasted.
 Between TP layers, each rank holds `[B, T/N, d_model]` rather than `[B, T, d_model]`.
 This cuts activation memory by a factor of the TP world size.
 
-The communication changes at every TP layer boundary:
+The key idea is simple: keep activations sequence-sharded in the cheap parts of
+the block, and only reconstruct the full sequence when a TP layer actually needs it.
 
-- **Entering a transformer block** (SP region → full sequence): the
-  `SequenceParallelPlugin` registers a forward pre-hook on the attention/MLP
-  block as a whole — not on the individual linear layers inside it. The hook
-  runs before the block's forward method, all-gathering `[B, T/N, d_model]` into
-  `[B, T, d_model]`. The `ColumnParallelLinear` layers inside the block then see
-  the full-sequence input and compute normally.
+That means the boundary around each attention or MLP block changes in two places:
 
-- **Exiting a transformer block** (full sequence → SP region): the final
-  `RowParallelLinear` uses `comm="reduce_scatter"` instead of `comm="all_reduce"`.
-  Rather than summing the partial results and replicating them on all ranks, it
-  reduce-scatters along the sequence dimension: each rank receives the fully-summed
-  result for only its assigned sequence slice. Output shape: `[B, T/N, d_model]`.
+1. **Before the block**, ranks all-gather their sequence shards.
+   `[B, T/N, d_model] -> [B, T, d_model]`
 
-```
-SP region (layer norm, residual, dropout):
+2. **After the block**, the final row-parallel layer does a reduce-scatter instead
+   of an all-reduce.
+   `[B, T, d_model] -> [B, T/N, d_model]`
+
+So the block looks like this:
+
+```text
+SP region:
   each rank holds [B, T/N, d_model]
 
-  ↓  all-gather (SP plugin hook before attention/MLP)
+  -> all-gather
 
-Inside TP layers:
-  ColumnParallel input:  [B, T, d_model]   ← full sequence
-  ColumnParallel output: [B, T, d_out/N]   ← feature-sharded
-  RowParallel output:    reduce_scatter
-                       → [B, T/N, d_model] ← back to sequence-sharded
+Inside TP block:
+  input to column-parallel layer:   [B, T, d_model]
+  intermediate TP activations:      feature-sharded as usual
+  output of final row-parallel:     reduce-scatter -> [B, T/N, d_model]
 
-  ↓  next SP region continues with [B, T/N, d_model]
+  -> next SP region
 ```
 
-The net effect: layer norm, residual connections, and dropout operate on
-`[B, T/N, d_model]` rather than `[B, T, d_model]`, cutting their activation
-memory by a factor of N. Total communication volume per layer is roughly unchanged
-versus vanilla TP: the all-reduce on `[B, T, d_model]` (2× data moved) is replaced
-by an all-gather on `[B, T/N, d_model]` (moves `B×T×d_model` bytes total across
-the group) plus a reduce-scatter (same volume). The activations in the SP regions
-are N× smaller, which is the primary benefit.
+> **Why can these layers stay sequence-sharded?**
+> Dropout, residual adds, and elementwise activations are token-independent, so
+> they can run on each rank's local `[B, T/N, d_model]` slice directly.
+>
+> LayerNorm and RMSNorm also do **not** need the full sequence. Their statistics
+> are computed per token over the hidden dimension, not across all tokens in the
+> sequence. So if a rank owns some subset of tokens, it can normalize those tokens
+> locally with no cross-rank reduction. Sequence parallelism would be much harder
+> if the normalization were across the sequence dimension.
+
+The payoff is that layer norm, residual connections, and dropout now operate on
+`[B, T/N, d_model]` instead of `[B, T, d_model]`. Communication is not removed;
+it is rearranged. Vanilla TP would end the block with an all-reduce that leaves a
+fully replicated activation. TP+SP replaces that with an all-gather before the
+block and a reduce-scatter after it. The main win is that the activations living
+between TP layers are `N` times smaller.
 
 ---
 
@@ -249,81 +254,46 @@ For a single transformer layer:
 | Activation | Plain TP (no SP) | TP+SP |
 |---|---|---|
 | Layer norm input | `[B, T, d_model]` replicated | `[B, T/N, d_model]` sharded |
-| After QKV proj | `[B, T, d_model/N]` sharded | `[B, T/N, d_model/N]` sharded |
+| After QKV proj | `[B, T, d_model/N]` sharded | `[B, T, d_model/N]` sharded |
 | Full attention `QKᵀ` | `[B, H/N, T, T]` per rank | `[B, H/N, T, T]` (no change, attn is on local heads) |
 | After output proj | `[B, T, d_model]` replicated | `[B, T/N, d_model]` sharded |
-| FFN intermediate | `[B, T, d_ffn/N]` sharded | `[B, T/N, d_ffn/N]` sharded |
+| FFN intermediate | `[B, T, d_ffn/N]` sharded | `[B, T, d_ffn/N]` sharded |
 
-The SP-sharded activations reduce peak memory. At `tp=4`, a single-layer activation
-that would occupy 4 GB now occupies 1 GB. For very long contexts (CP territory), SP
-is often the first technique deployed before reaching for context parallelism.
+The important distinction is that SP shrinks the activations **between** TP-heavy
+blocks, not the tensors **inside** the attention or MLP core after the all-gather.
+So the QKV projections and FFN intermediate keep the same `[B, T, .../N]` shapes
+as vanilla TP, while layer-norm inputs, residual streams, and block outputs become
+`[B, T/N, d_model]`.
+
+That still reduces peak memory substantially, because those replicated residual-path
+activations are large and appear at every layer. For very long contexts (before you
+need full context parallelism), SP is often the first tool used to cut activation
+memory.
 
 ---
 
 ## Gradient Semantics Under TP
 
-The parameter gradients are local: each rank computes the gradient for its own
-weight slice, and no communication is needed. `dL/dW_i = Xᵀ @ dL/dY_i` — a
-local matmul using the local input `X` and local output gradient `dL/dY_i`.
+Weight gradients are local. Each rank owns one slice of the weight matrix, so it
+can compute the gradient for that slice from the activations and output gradients
+it already has.
 
-The input gradient `dL/dX` is different — it requires communication. Here's why:
+The subtle part is the **input gradient**.
 
-In the forward pass of `RowParallelLinear`, every rank's partial result
-`Z_i = X_i @ W_i` is summed via all-reduce to produce the full output
-`Z = Z_0 + Z_1 + ... + Z_{N-1}`. In the backward pass, to compute how the loss
-changes with respect to the input `X`, we need `dL/dX_i = dL/dZ @ W_iᵀ`. But
-`dL/dZ` is the gradient that arrives at the output of `RowParallel` — it's a
-replicated tensor (same on all ranks, because the forward all-reduce replicated
-the output). So `dL/dX_i = dL/dZ @ W_iᵀ` is a local operation, and the
-gradient flows back into `ColumnParallelLinear` as a sharded input gradient.
+For a row-parallel layer, each rank receives the full output gradient and computes
+the gradient for its own input slice. No extra reduction is needed there, because
+the input itself was sharded in the forward pass.
 
-`ColumnParallelLinear`'s backward then needs to compute `dL/dX` — the full-input
-gradient that flows to the previous layer. Since each rank holds a slice of the
-output `Y_i`, it computes a partial `dL/dX_partial = dL/dY_i @ W_iᵀ`. Summing
-these partials across ranks gives the full input gradient — and that sum is the
-all-reduce that appears in `ColumnParallelLinear`'s backward. This all-reduce is
-not inserted by PyTorch's autograd automatically (autograd doesn't know about
-distributed topology). Instead, `ColumnParallelLinear` uses a custom autograd
-function whose `backward()` method explicitly calls `dist.all_reduce`, ensuring
-the communication happens at the right point in the backward pass.
+For a column-parallel layer, each rank holds only one shard of the output features,
+so in backward it can only compute one **partial contribution** to the gradient of
+the replicated input. Those partial input gradients must be summed across ranks.
+That sum is the all-reduce in the backward pass.
 
-**In short**: weight gradients in TP are local (no communication). Input gradients
-require an all-reduce at each `ColumnParallelLinear` boundary, performed by a
-custom autograd function baked into the layer implementation.
+So the short version is:
 
----
-
-## Checkpoint Handling: Annotating Sharded Params
-
-When a TP run saves a checkpoint, each rank has a different slice of each weight
-matrix. The `TensorParallelPlugin.annotate_checkpoint_state()` method records this:
-
-```python
-tp_shard = {
-    "axis": shard_axis.value,   # "param_out" (column) or "param_in" (row)
-    "rank": rank,
-    "world_size": world_size,
-    "shard_dim": shard_dim,     # which dimension was sharded
-    "shard_offset": rank * local_extent,
-    "shard_extent": local_extent,
-    "logical_shape": logical_shape,  # full original shape before sharding
-}
-```
-
-On load, this annotation tells the loader how to reconstruct the full weight matrix
-from the shards across ranks. Changing the TP world size between a checkpoint save
-and load requires resharding — a non-trivial operation not yet supported in MALTOS.
-
----
-
-## Experiment Placeholder
-
-> **[Placeholder: TP+SP memory scaling vs. model size]**
-> A useful comparison: activation memory at a fixed sequence length (seq=4096)
-> for a 1B model at tp=1 vs. tp=2 vs. tp=4 vs. tp=4+SP. Expected: activation
-> memory scales linearly with seq_len at fixed tp; SP adds another factor of tp
-> in the activation term. Measure with `torch.cuda.max_memory_allocated()` after
-> a single forward pass.
+- Weight gradients are local.
+- Row-parallel backward returns sharded input gradients naturally.
+- Column-parallel backward needs an all-reduce to reconstruct the full input gradient.
 
 ---
 

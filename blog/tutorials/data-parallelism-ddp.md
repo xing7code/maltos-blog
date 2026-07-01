@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Data Parallelism and Gradient Reduction"
-description: DDP is the first parallelism strategy every pretraining setup needs. This article covers synchronous and asynchronous gradient all-reduce, the bucketed implementation that overlaps communication with backward, and why the naive approach leaves performance on the table.
+description: DDP is the first parallelism strategy every pretraining setup needs. This article covers synchronous gradient reduction, per-parameter async overlap, and the bucketed implementation that production systems actually use.
 category: Pretraining Concepts · Part 4 of 9
 date: 2026-06-11
 read_time: 14 min read
@@ -15,8 +15,8 @@ averaging the gradients after each backward pass. That is data-parallel training
 (DDP), and it is the first parallelism strategy every pretraining setup should have.
 
 This article covers how DDP gradient reduction works, why the naive synchronous
-implementation is inefficient, and how the bucketed approach achieves nearly full
-overlap between computation and communication.
+implementation is inefficient, how async reduction introduces overlap, and why
+production implementations go one step further and use buckets.
 
 It assumes the primitives from the previous article: ranks, process groups, and
 the meaning of collective operations such as all-reduce and reduce-scatter.
@@ -55,17 +55,37 @@ entire backward pass completes. The GPU is idle while the network is busy.
 ---
 
 <div class="article-figure">
-  <img src="../assets/ddp-gradient-reduction.svg" alt="DDP gradient reduction: naive vs. bucketed">
+  <img src="../assets/ddp-gradient-reduction.svg" alt="Three DDP gradient-reduction timelines: post-backward sync, per-parameter async, and bucketed async">
 </div>
 
 ---
 
-## The Bucketed Approach: Overlap Communication with Backward
+## From Sync to Async to Bucketed
+
+There are three useful mental models here.
+
+The fully synchronous baseline is the simplest: finish backward, then reduce the
+gradients. It is easy to reason about, but there is no overlap at all between
+communication and computation.
+
+The first improvement is to launch an async all-reduce as soon as each gradient is
+ready. This is already much better, because network work can overlap with the rest
+of backward. But it still launches one collective per parameter tensor, which is
+too many small NCCL operations for large models.
+
+Bucketed DDP is the practical next step. It keeps the overlap idea from async
+reduction, but batches many parameter gradients into a flat buffer so each
+collective is larger and cheaper to launch.
+
+---
+
+## The Bucketed Async Implementation
 
 The key observation is that we don't need to wait for the full backward pass to
 start reducing gradients. Gradients are computed in reverse order during backward —
-the later layers get their gradients first. As soon as a layer's gradient is ready,
-we can start all-reducing it in the background while backward continues on earlier
+the later layers get their gradients first. In principle, we could all-reduce each
+gradient immediately. In practice, we wait until a whole bucket is ready, then
+all-reduce that flat buffer in the background while backward continues on earlier
 layers.
 
 The `BucketDataParallelPlugin` implements this with a flat-buffer bucketing scheme:
@@ -86,34 +106,33 @@ internally; the `handle.wait()` at step 5 inserts a stream dependency that block
 the optimizer step until all communication has completed.
 
 ```python
-# From ddp.py: the hook that fires when a bucket is fully ready
+# Core idea: when the last grad in a bucket is ready, launch async all-reduce
 def make_hook(self):
-    is_gloo = dist.get_backend(self.group) == "gloo"
-    world_size = dist.get_world_size(self.group)
-
     def hook(param):
         self.pending -= 1
         if self.pending == 0:
-            if is_gloo:
-                # Gloo doesn't support ReduceOp.AVG — sum and divide manually.
-                # Gloo also doesn't support async_op=True, so this blocks.
-                dist.all_reduce(self.flat_buffer, op=dist.ReduceOp.SUM, group=self.group)
-                self.flat_buffer.div_(world_size)
-                self.handle = None  # no async handle; already complete
-            else:
-                self.handle = dist.all_reduce(
-                    self.flat_buffer,
-                    op=dist.ReduceOp.AVG,
-                    group=self.group,
-                    async_op=True,  # key: non-blocking on NCCL
-                )
+            self.handle = dist.all_reduce(
+                self.flat_buffer,
+                op=dist.ReduceOp.AVG,
+                group=self.group,
+                async_op=True,
+            )
     return hook
 ```
 
-The hook fires via `register_post_accumulate_grad_hook()`, which PyTorch calls
-immediately after each parameter accumulates its gradient during backward. This is
-what makes the overlap possible: the hook fires as soon as the parameter is ready,
-not after all parameters are ready.
+Then each parameter in the bucket registers that hook:
+
+```python
+# Pseudocode: attach the same bucket hook to every param in the bucket
+hook = bucket.make_hook()
+for param in bucket.params:
+    param.register_post_accumulate_grad_hook(hook)
+```
+
+`register_post_accumulate_grad_hook()` is what makes the overlap possible. PyTorch
+calls it immediately after a parameter accumulates its gradient during backward,
+so the bucket can observe gradients becoming ready in backward order instead of
+waiting for the entire backward pass to finish.
 
 ---
 
@@ -122,6 +141,19 @@ not after all parameters are ready.
 The bucket's flat buffer is the implementation detail that makes bucketed DDP
 efficient. When multiple parameters share a single contiguous buffer, they can be
 all-reduced in a **single NCCL call** rather than one call per parameter.
+
+Just as important, flattening does **not** mean gradients get copied into another
+buffer after backward. The bucket wires each `param.grad` directly onto a view of
+the flat buffer:
+
+```python
+view = flat_buffer[offset : offset + param.numel()].view_as(param)
+param.grad = view
+```
+
+So when backward writes into `param.grad`, it is already writing into the buffer
+that will be all-reduced later. The flat buffer reduces NCCL launch overhead
+without adding an extra gradient copy on the hot path.
 
 NCCL (NVIDIA's Collective Communications Library) has a fixed latency cost per
 operation. Without bucketing, each parameter *tensor* (weight matrix, bias vector,
@@ -142,26 +174,6 @@ Roughly 500 large NCCL operations instead of thousands of tiny ones. The latency
 savings compound: less per-operation overhead, better NIC pipelining, and the
 async path can hide most of the cost entirely.
 
-The `finalize()` method sets up these views when the bucket is first created:
-
-```python
-def finalize(self) -> None:
-    total_numel = sum(param.numel() for param in self.params)
-    self.flat_buffer = torch.zeros(total_numel, dtype=..., device=...)
-    offset = 0
-    for param in self.params:
-        view = self.flat_buffer[offset : offset + param.numel()].view_as(param)
-        self.param_views.append(view)
-        offset += param.numel()
-    # Assign param.grad to point into the flat buffer
-    for param, view in zip(self.params, self.param_views):
-        param.grad = view
-```
-
-Now `param.grad` is not a separately allocated tensor — it is a view into the
-bucket's flat buffer. When backward writes into `param.grad`, it writes directly
-into the buffer that will be all-reduced. Zero copies.
-
 ---
 
 ## Gradient Accumulation Under DDP
@@ -170,184 +182,66 @@ With gradient accumulation (multiple micro-steps per optimizer step), the all-re
 should only happen on the last micro-step. All-reducing on every micro-step wastes
 network bandwidth and would double-count the normalization.
 
-The `BucketDataParallelPlugin` handles this with the `is_step_boundary` flag —
-a boolean in the runtime's step context that is `True` only on the last micro-step
-of each accumulation window:
+The simplest way to think about this is as a two-state bucket:
+
+- On non-boundary micro-steps, set `pending = 0`.
+- On the final micro-step of the accumulation window, set `pending = len(bucket.params)`.
+
+That is enough to control whether the backward hooks merely accumulate gradients
+or actually trigger communication:
 
 ```python
-def on_phase(self, phase: RuntimePhase) -> None:
-    if phase == RuntimePhase.PRE_BACKWARD:
-        context = self.runtime.state.step_context
-        should_sync = context.is_step_boundary  # True only on last micro-step
-        accum_start = context.accum_start       # True only on first micro-step
-        for bucket in self.buckets:
-            bucket.reset(
-                grad_accum_start=accum_start,
-                grad_accum_end=should_sync,
-            )
-```
-
-The `pending` counter is per-bucket and tracks how many parameters in that bucket
-still need to complete their backward pass before the bucket is ready to all-reduce.
-
-```
-bucket.reset(grad_accum_end=False):  # micro-step 1..N-1
-    bucket.pending = 0
-    # hook fires per-param: pending -= 1 → pending = -1 → if -1 == 0: False
-    # → all-reduce is NOT launched; gradients accumulate silently
-
-bucket.reset(grad_accum_end=True):   # last micro-step
-    bucket.pending = len(bucket.params)  # arm the hook
-    # as each param's backward completes:
-    #   hook fires → pending -= 1 → if pending == 0: launch all_reduce
-```
-
-On micro-steps 1 through N-1, `should_sync=False`. `bucket.reset()` sets
-`pending = 0`. The hook fires for each parameter, decrements `pending` to -1,
-then checks `if -1 == 0` — false, so the all-reduce is not launched. On the
-next micro-step, `reset()` overwrites `pending = 0` again. Gradients accumulate
-in the flat buffer silently.
-
-On micro-step N, `should_sync=True`. `pending` is armed to `len(bucket.params)`.
-As each parameter completes its backward pass, the hook decrements `pending`. When
-the last parameter completes and `pending` reaches zero, the async all-reduce
-launches.
-
----
-
-## Expert Parameters and DP Group Exclusion
-
-Not all parameters should be reduced over the DP group. Expert parameters in a
-Mixture-of-Experts model are already handled by the Expert Parallelism plugin with
-a separate EP all-reduce. Reducing them again over the DP group would double-count.
-
-The DDP plugin checks the parameter role:
-
-```python
-for name, param in self.runtime.model.named_parameters():
-    if not param.requires_grad:
-        continue
-    if self.runtime.get_param_role(param) == ParamRole.EXPERT:
-        continue  # skip: EP plugin handles these
-    # ... add to all-reduce
-```
-
-The bucket builder has the same exclusion:
-
-```python
-[p for p in model.parameters()
- if p.requires_grad
- and self.runtime.get_param_role(p) != ParamRole.EXPERT]
-```
-
-This works because MALTOS tracks each parameter's role via `register_param_role()`,
-which EP plugins call during `transform_model`. By the time DDP is set up (which
-also happens during `transform_model`, but runs after EP due to the plugin ordering),
-the role annotations are already present.
-
----
-
-## Numerical Equivalence
-
-Bucketed DDP with async all-reduce produces results that are mathematically
-equivalent to synchronous DDP (when using `ReduceOp.AVG`). The only difference
-is when the operation executes, not what it computes. In practice, floating-point
-addition is not associative, so different summation orderings in the ring-allreduce
-algorithm produce gradient values that differ in the last few bits. This is not
-numerically meaningful — gradient descent is robust to this level of noise — but
-it does mean bit-exact reproducibility across different bucket configurations is
-not guaranteed.
-
----
-
-## Gloo vs. NCCL
-
-The all-reduce operation behaves differently depending on whether the process group
-uses the Gloo or NCCL backend. NCCL runs on CUDA, supports `ReduceOp.AVG` directly,
-and can run asynchronously. Gloo runs on CPU and requires manual normalization:
-
-```python
-if is_gloo:
-    dist.all_reduce(param.grad, op=dist.ReduceOp.SUM, group=dp_group)
-    param.grad.div_(world_size)
+# Pseudocode
+if is_last_microstep:
+    bucket.pending = len(bucket.params)   # arm the bucket
 else:
-    handle = dist.all_reduce(
-        param.grad, op=dist.ReduceOp.AVG, group=dp_group, async_op=True
-    )
+    bucket.pending = 0                    # accumulate only
+
+def hook(param):
+    bucket.pending -= 1
+    if bucket.pending == 0:
+        launch_async_all_reduce(bucket.flat_buffer)
 ```
 
-Gloo is slower and can't overlap with backward. It is used for CPU smoke tests —
-the same code path as the GPU runs, just without the async benefits. This is how
-all DDP combinations are validated before running on real hardware.
+Before the accumulation boundary, hooks still fire, but the bucket is not armed,
+so no all-reduce is launched. Gradients just keep accumulating into the flat
+buffer across micro-steps.
+
+At the final boundary micro-step, the bucket is armed with `len(bucket.params)`.
+Now each parameter hook counts down toward zero, and when the last gradient in the
+bucket arrives, the async all-reduce launches exactly once.
 
 ---
 
-## How DDP Interacts With ZeRO
+## Why Expert Parameters Need Special Handling
 
-When ZeRO-3 is in the configuration, DDP is not loaded. ZeRO-3 handles gradient
-reduction itself using a different operation: **reduce-scatter** instead of
-**all-reduce**.
+Mixture-of-Experts makes gradient synchronization trickier because not every rank
+holds the same expert weights.
 
-The difference matters for memory. An all-reduce gives every rank the full averaged
-gradient — every rank stores a full-size gradient tensor (one float per parameter).
-A reduce-scatter produces the same averaged values, but each rank only receives its
-assigned `1/N` slice. ZeRO-3 uses reduce-scatter so no rank ever stores the full
-gradient tensor; each rank stores and updates only its shard. Part 6 covers
-ZeRO in detail.
+For ordinary shared parameters, DDP's rule is simple: every DP rank has the same
+parameter, so their gradients should be averaged over the DP group.
 
-The plugin system enforces the DDP/ZeRO mutual exclusion: both compete for the
-same `PluginId.DP` slot, and the runtime prevents two plugins from registering the
-same slot ID. You pick one or the other; the configuration is invalid if both are
-present.
+Expert parameters break that assumption. Along the EP dimension, ranks usually own
+different experts, so those weights are **sharded**, not replicated. Averaging such
+gradients across the full DP group would mix gradients from different experts,
+which is mathematically wrong.
 
----
+At the same time, many real layouts still have **replicas of the same expert** on
+some other axis. In practice, systems often need a separate **expert-replica
+group**: ranks in that group hold the same expert weights and should average their
+expert gradients together, even though different experts are still distributed
+across the EP dimension.
 
-## The `runtime_optimizer_replicated_axes` Method
+That means expert parameters need a different question from shared parameters:
 
-After gradient reduction, the optimizer state needs to know whether parameters are
-replicated across certain axes. DDP declares that parameters are replicated along
-the DP axis:
+- If this parameter is a shared weight, reduce it over the DP group.
+- If this parameter is an expert weight with replica degree 1, do not reduce it at all.
+- If this parameter is an expert weight with multiple replicas, reduce it only across the ranks that hold the **same expert copy**.
 
-```python
-def runtime_optimizer_replicated_axes(self) -> set[MeshAxis]:
-    return {MeshAxis.DP} if self.runtime.mesh.dp > 1 else set()
-```
-
-This information is used when the checkpoint system decides how to save optimizer
-state. If parameters are replicated, only one rank per DP group needs to save the
-optimizer state for that parameter — all replicas are identical. The manifest's
-`optimizer_source_ranks` field records which rank to load from.
-
----
-
-## Scaling Beyond a Single Machine
-
-All of the above works on a single machine with multiple GPUs connected by NVLink.
-On a multi-node setup, the DP group spans machines connected by InfiniBand or
-RoCE. The code is identical — PyTorch's distributed package abstracts the transport.
-The difference is performance: intra-node NVLink bandwidth (~900 GB/s per GPU on
-H100) is several times higher than typical cross-node bandwidth (a node with
-4–8 × 400 Gb/s NICs gets 200–400 GB/s *for the whole node*, shared across its
-GPUs), so the relative cost of DDP all-reduce increases as you span more machines.
-
-This is why large-scale pretraining combines DDP with ZeRO: ZeRO-3 increases
-the raw communication volume from 2× model size (DDP all-reduce) to 3× model size
-(per-layer all-gathers + reduce-scatter), but that communication is spread across
-many small parameter fetches via prefetch rather than one large synchronization point. Combined with TP that reduces the model
-size visible at each DP rank, the communication overhead becomes manageable at
-hundreds of GPUs.
-
----
-
-## Experiment Placeholder
-
-> **[Placeholder: DDP vs. BucketDDP throughput comparison]**
-> A useful experiment here: benchmark `DataParallelPlugin` (sync) vs.
-> `BucketDataParallelPlugin` (async bucketed) on a 1B model with dp=4 on the same
-> machine. Expected result: bucketed gets closer to peak GPU utilization (higher
-> MFU) by overlapping the all-reduce with the backward pass. At dp=2 on
-> NVLink the gap may be small; at dp=8 spanning nodes on InfiniBand it should be
-> significant.
+So the real rule is not "all expert params skip DDP" or "all expert params reduce
+in EP." The real rule is: **reduce each parameter only across its true replica
+group**. Shared weights and expert weights often have different replica groups,
+which is why DDP has to treat expert parameters carefully.
 
 ---
 
@@ -355,7 +249,7 @@ hundreds of GPUs.
 
 The next article covers tensor parallelism and sequence parallelism: how a single
 weight matrix is sharded across multiple GPUs, what ColumnParallelLinear and
-RowParallelLinear actually do, and how sequence parallelism shards the activations
+RowParallelLinear actually do, and how sequence parallelism shards activations
 between layers to cut memory further.
 
 Data parallelism scales training throughput by processing more data in parallel.

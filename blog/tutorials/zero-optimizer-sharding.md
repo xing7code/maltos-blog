@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "ZeRO Optimizer Sharding"
-description: "Adam's optimizer state is three times larger than the model. ZeRO-1, 2, and 3 progressively shard it across data-parallel ranks — with ZeRO-3 sharding the parameters themselves. This article covers how each stage works, why ZeRO-3 requires module-level all-gathers, and what it costs in communication."
+description: "Mixed-precision Adam training state is several times larger than the model weights. ZeRO-1, 2, and 3 progressively shard it across data-parallel ranks — with ZeRO-3 sharding the parameters themselves. This article covers how each stage works, why ZeRO-3 requires module-level all-gathers, and what it costs in communication."
 category: Pretraining Concepts · Part 6 of 9
 date: 2026-06-11
 read_time: 16 min read
@@ -9,20 +9,22 @@ read_time: 16 min read
 
 # ZeRO Optimizer Sharding
 
-Training a 7B-parameter language model with AdamW requires storing, for each
-parameter, the parameter itself, its gradient, and Adam's first and second moment
-estimates (m and v vectors). In mixed-precision training:
+Training a 7B-parameter language model with AdamW usually requires storing, for
+each parameter, a low-precision model copy for forward/backward, its gradient,
+an fp32 master copy that the optimizer updates, and Adam's first and second
+moment estimates (`m` and `v`). In a typical mixed-precision setup:
 
 | State | Dtype | Bytes/param |
 |---|---|---|
-| Parameters | bf16 | 2 |
+| Model parameters | bf16 | 2 |
 | Gradients | bf16 | 2 |
+| Master parameters | fp32 | 4 |
 | Adam m (first moment) | fp32 | 4 |
 | Adam v (second moment) | fp32 | 4 |
-| **Total** | | **12** |
+| **Total** | | **16** |
 
-For 7B parameters: 12 × 7 × 10⁹ ≈ 84 GB. A single H100 has 80 GB. Single-GPU
-training is impossible.
+For 7B parameters: 16 × 7 × 10⁹ ≈ 112 GB. A single H100 has 80 GB, so even
+before activations and temporary buffers, single-GPU training does not fit.
 
 ZeRO (Zero Redundancy Optimizer) distributes this memory across data-parallel
 ranks. In standard DDP, each rank holds a full copy of all parameters, gradients,
@@ -41,44 +43,46 @@ replicated, and the answer is: much less than you'd think.
 
 ## Stage 1: Shard the Optimizer State
 
-The insight behind ZeRO-1: **all DP replicas perform the same parameter update,
-but each replica only needs to update a subset of parameters at any given time**.
+The insight behind ZeRO-1 is simple: DDP makes every rank keep optimizer state
+for every parameter, but each rank only needs to update its own shard.
 
-In ZeRO-1, we partition the parameters across DP ranks. Rank `i` is responsible for
-parameters `i/N` through `(i+1)/N` of the full parameter set. After the all-reduce,
-rank `i` only updates its assigned parameters, discards the gradients for the others,
-and all-gathers the updated parameters so all ranks stay in sync.
+Let `N` be the total number of parameters and `R` the number of data-parallel
+ranks. In ZeRO-1, rank `i` owns parameter shard
+`[i * N / R, (i + 1) * N / R)`. It stores the fp32 master weights and Adam
+moments for that shard, updates only that shard, and then shares the updated
+weights back out. The bf16 model weights used for forward/backward are still
+replicated on all ranks.
 
 ```
-After all-reduce (example, N=4 ranks):
-  Rank 0 holds: averaged grads for all params
-  Rank 0 updates: params 0..N/4   (its assigned shard, 1/N of total params)
-  Rank 1 updates: params N/4..N/2
-  Rank 2 updates: params N/2..3N/4
-  Rank 3 updates: params 3N/4..N
+After all-reduce (example: `R = 4`):
+  Every rank (0-3) holds: averaged grads for all params
+  Rank 0 updates: first quarter of parameters
+  Rank 1 updates: second quarter of parameters
+  Rank 2 updates: third quarter of parameters
+  Rank 3 updates: fourth quarter of parameters
 
 All-gather restores the full param set on all ranks.
 ```
 
-The memory saving: optimizer state (m, v) is sharded by `N`. Each rank stores full
-parameters and full gradients, but only `1/N` of the optimizer tensors.
+The memory saving is that the fp32 optimizer-owned state is sharded by `R`.
+Each rank still stores the full bf16 model weights and full bf16 gradients, but
+only `1/R` of the fp32 master weights and Adam moment tensors.
 
-ZeRO-1 still performs a full gradient all-reduce (like DDP) — every rank receives
-the fully-averaged gradient for all parameters. The difference from DDP is that
-each rank then discards the gradients for the parameters it doesn't own, only
-updating its assigned slice. This is less memory-efficient than ZeRO-2 (which never
-materializes the full gradient on any rank), but ZeRO-1 is simpler to implement and
-debug because the all-reduce is identical to DDP — only the optimizer step changes.
+ZeRO-1 still uses the same gradient all-reduce as DDP, so every rank briefly
+sees the full averaged gradient. The difference is what happens next: each rank
+keeps only the gradient shard it owns, updates only that shard, and discards the
+rest. That is less memory-efficient than ZeRO-2, but simpler because only the
+optimizer step changes.
 
-After the optimizer step, each rank has updated its assigned parameter shard —
-but the parameters on different ranks are now inconsistent: rank 0 updated params
-0..N/4 using its local moments, rank 1 updated params N/4..N/2, etc. A final
-all-gather broadcasts each rank's updated shard to all other ranks, restoring
-a consistent full parameter copy on every rank.
+After the optimizer step, ranks no longer have identical parameter copies, because
+each rank updated only its own shard. A final all-gather restores a consistent
+full parameter copy on every rank.
 
-For a 7B model at N=8:
-- Before ZeRO: 84 GB per rank
-- After ZeRO-1: 2 (params) + 2 (grads) + (4+4)/8 (moments) = 5 bytes/param × 7B params ≈ 35 GB per rank
+For a 7B model at `R = 8`:
+
+- Before ZeRO: 112 GB per rank
+- After ZeRO-1: `2 + 2 + (4 + 4 + 4)/8 = 5.5` bytes/param
+  `5.5 x 7B params ≈ 38.5 GB` per rank
 
 ---
 
@@ -95,30 +99,42 @@ Reduce-scatter (ZeRO-2/3):
   all ranks → sum of grads → each rank receives only its assigned shard of the averaged grad
 ```
 
-All-reduce and reduce-scatter move the same total bytes across the network —
-the bandwidth cost is identical. (An all-reduce is equivalent to a reduce-scatter
-followed by an all-gather; both phases move `model_size` bytes each. ZeRO-2
-drops the all-gather phase — it only runs reduce-scatter — but the reduce-scatter
-itself moves the same bytes as an all-reduce because every rank still contributes
-its full gradient tensor to the reduction.) The difference is what ends up in
-memory: with all-reduce, every rank stores the full averaged gradient tensor. With
-reduce-scatter, rank `i` only stores `1/N` of it — the shard for its assigned
-parameters. The other ranks' gradient data is never written to this rank's memory.
+Reduce-scatter is **not** the same communication cost as all-reduce. In the usual
+ring view, an all-reduce is roughly a reduce-scatter plus an all-gather, so an
+all-reduce moves about **2x** the bytes of a reduce-scatter alone.
+
+That is why ZeRO-2 is best understood in two pieces:
+
+- During gradient synchronization, it uses **reduce-scatter** instead of DDP's
+  **all-reduce**, so this step is cheaper.
+- After the optimizer step, it still needs an **all-gather** to restore a full
+  replicated parameter copy on every rank.
+
+Compared with ZeRO-1, the key communication change is simple: the gradient-sync
+step changes from **all-reduce** to **reduce-scatter**. Both ZeRO-1 and ZeRO-2
+still need an **all-gather** after the optimizer step to restore a full parameter
+copy on every rank. So ZeRO-2 saves communication in the gradient-sync phase,
+not by removing that final parameter all-gather.
+
+The key difference in memory is what lands on each rank: with all-reduce, every
+rank stores the full averaged gradient tensor. With reduce-scatter, rank `i`
+only stores `1/R` of it — the shard for its assigned parameters.
 
 The result: after reduce-scatter, only the owning rank needs to keep the gradient.
 Other ranks can free their portion immediately, cutting gradient memory by `N`.
 
 ZeRO-2 memory per rank:
-- 2 bytes/param for parameters (still replicated — every rank needs full params for forward pass)
-- (2 + 4 + 4)/8 = 1.25 bytes/param for grad + moments (sharded by N=8)
-- Total: ~3.25 bytes/param × 7B params ≈ 23 GB per rank (vs. 84 GB with no ZeRO)
+
+- 2 bytes/param for bf16 model parameters (still replicated — every rank needs full params for forward pass)
+- (2 + 4 + 4 + 4)/8 = 1.75 bytes/param for grad + master + moments (sharded by N=8)
+- Total: ~3.75 bytes/param × 7B params ≈ 26.25 GB per rank (vs. 112 GB with no ZeRO)
 
 ---
 
 ## Stage 3: Also Shard the Parameters
 
-ZeRO-3 goes all the way: parameters, gradients, and optimizer state are all sharded.
-Each rank stores only `1/N` of the actual parameters.
+ZeRO-3 goes all the way: bf16 model parameters, gradients, fp32 master weights,
+and optimizer state are all sharded. Each rank stores only `1/N` of each state.
 
 This creates a problem: **each forward pass needs the full parameters for each layer**.
 A layer whose weights are sharded across 8 ranks can't compute a matrix multiply.
@@ -141,190 +157,91 @@ Backward pass for layer L:
   4. Free W_L_full
 ```
 
-ZeRO-3 memory per rank: (2 + 2 + 4 + 4)/8 = 1.5 bytes/param × 7B params ≈ **10.5 GB per rank**.
+ZeRO-3 memory per rank: (2 + 2 + 4 + 4 + 4)/8 = 2 bytes/param × 7B params ≈ **14 GB per rank**.
 
 ---
 
-## Module-Level Wrapping in MALTOS
+## Why ZeRO-3 Materializes by Layer or Bucket
 
-MALTOS's `Zero3Plugin` wraps modules at the `nn.Module` boundary (default: `nn.Linear`)
-rather than at individual parameter boundaries. This is a critical implementation
-choice.
+In principle, ZeRO-3 could all-gather each parameter tensor exactly when it is
+needed. In practice that would be far too fine-grained: the runtime would spend
+its time launching many tiny collective operations instead of doing useful math.
 
-**Why modules, not parameters?** All-gathering one parameter at a time would mean
-one NCCL call per parameter per forward pass. A 7B model with ~500 million
-`nn.Linear` weight matrices would require thousands of all-gathers per step.
+So real systems usually gather parameters at **layer** or **bucket** granularity.
+A bucket is just a flat buffer that groups together one module's parameters, or a
+small set of adjacent parameters, into one communication unit.
 
-By wrapping at the module level, all parameters belonging to one `nn.Linear` are
-collected into a single flat buffer (a "bucket") and handled with a single all-gather:
+That gives three practical benefits:
 
-```python
-# From zero3.py: wrapping happens in _prepare_buckets
-for module_name, module in model.named_modules():
-    if not isinstance(module, tuple(self.wrap_cls)):
-        continue
-    params = [param for param in module.parameters(recurse=True)]
-    # All params in this module become one bucket
-    bucket = self._make_bucket(index, module, params, logical_names)
-```
+1. Fewer collective calls, which reduces launch overhead.
+2. Better bandwidth utilization, because larger all-gathers are more efficient.
+3. A clean lifetime: gather the bucket, run the layer, free the full copy.
 
-Each bucket has a local shard `bucket.local_param` (an `nn.Parameter` holding
-the `1/N` fraction of the weight that this rank owns) and a full data buffer
-`bucket.exec_state.data_buffer` (a temporary tensor populated during forward/backward
-via all-gather, then freed). After `_prepare_buckets` runs, `bucket.local_param`
-becomes the "official" parameter that the optimizer tracks — the original
-`module.weight` reference is replaced so `model.parameters()` now yields the
-sharded `local_param` objects rather than the original full-size tensors.
+The core idea is still the same as the simple ZeRO-3 story above. The only change
+is that "parameter" becomes "layer-sized bucket" as the unit of materialization.
 
 ---
 
-## Prefetching: Hiding All-Gather Latency
+## Prefetching: Hiding the Gather Behind Compute
 
-A naive ZeRO-3 would: gather → compute → free → gather → compute → free, with no
-overlap. The gather latency stalls the forward pass.
+A naive ZeRO-3 schedule is strictly serial: gather one bucket, compute that
+layer, then move on to the next layer. That is correct, but it exposes the full
+all-gather latency to the critical path.
 
-MALTOS prefetches the next bucket's parameters while the current bucket is computing:
+The standard improvement is **prefetching**: while layer `L` is computing, start
+gathering the parameters for layer `L+1`. On a horizontal time axis, the next
+all-gather is intentionally staggered under the current layer's compute. If the
+overlap is good, much of the gather latency disappears from the critical path.
 
-```python
-def _make_materialize_forward_hook(self, bucket):
-    def hook(_module, _inputs):
-        self._record_forward_bucket(bucket)
-        self._materialize_full_params(bucket, direction=FORWARD)
-        # While this layer computes, start gathering the NEXT layer's params
-        if self.bucket_order_checked and bucket.next_bucket is not None:
-            self._prefetch_bucket(bucket.next_bucket, direction=FORWARD)
-    return hook
-```
+<div class="article-figure">
+  <img src="../assets/zero-prefetch-timeline.svg" alt="Naive ZeRO-3 vs prefetching timeline">
+</div>
 
-On the first step, the bucket execution order is unknown (it depends on the model's
-forward pass order). MALTOS records the order dynamically:
+Backward can do the same thing in reverse order.
 
-```python
-def _record_forward_bucket(self, bucket):
-    if self.bucket_order_checked or bucket.index in self._observed_forward_set:
-        return
-    self._observed_forward_set.add(bucket.index)
-    self._observed_forward_order.append(bucket)
-```
+Prefetching helps most when:
 
-Once `len(observed) == len(buckets)`, `bucket_order_checked = True` and the
-`next_bucket` / `prev_bucket` links are established. From step 2 onwards, each
-bucket knows exactly which bucket to prefetch next.
+- layers execute in a stable order from step to step
+- per-layer compute is large enough to hide communication
+- interconnect bandwidth is high enough that the next gather can finish in time
 
-In the backward pass, the same logic applies in reverse: as each bucket computes
-its backward, it prefetches the previous bucket's parameters (backward runs in
-reverse forward order).
-
-**What if the forward pass order is non-deterministic?** Models with dynamic
-control flow (e.g., conditional expert routing in MoE, or Python `if` branches
-on input content) may visit modules in a different order on different steps. If
-this happens, the recorded `next_bucket` links become stale — the prefetch fires
-for the wrong bucket. MALTOS handles this conservatively: once `bucket_order_checked`
-is set, it stays set. If the actual order differs from the recorded order, the
-prefetch misses and the all-gather happens on demand rather than ahead of time.
-Correctness is preserved; only the latency benefit is lost. Models with highly
-variable execution paths may see reduced prefetch efficiency.
+If execution order changes dynamically, prefetch may miss its target. The run is
+still correct; it just falls back toward the naive gather-then-compute behavior.
 
 ---
 
-## The Reduce-Scatter in Detail
+## Backward and Optimizer Step Under ZeRO-3
 
-After backward, each parameter in the bucket has accumulated a gradient in
-`state.grad_buffer`. The reduce-scatter averages these gradients and delivers
-rank `i`'s shard to rank `i`:
+The backward pass mirrors the forward pass:
 
-```python
-def _reduce_scatter_avg(self, bucket, state):
-    work = dist.reduce_scatter_tensor(
-        state.shard_buffer,       # output: rank i's gradient shard
-        state.grad_buffer,        # input: full concatenated gradient
-        op=dist.ReduceOp.AVG,
-        group=bucket.group_context.group,
-        async_op=True,
-    )
-    return ReduceScatterShardWork(work, state.shard_buffer, bucket.local_param.grad, ...)
-```
+1. Gather the bucket's full parameters.
+2. Compute gradients for that bucket.
+3. Reduce-scatter those gradients so each rank keeps only its own shard.
+4. Free the temporary full parameter copy.
 
-The reduce-scatter runs async. The `ReduceScatterShardWork` wrapper accumulates
-the shard into `bucket.local_param.grad` when `.wait()` is called at `PRE_STEP`.
+After that, the optimizer step is local again. Each rank updates:
 
-The optimizer then runs `optimizer.step()` on `bucket.local_param` — the parameter
-shard — using the accumulated gradient shard. Each rank updates only its own
-parameters.
+- its own shard of the bf16 parameter
+- its own shard of the fp32 master weights
+- its own shard of Adam `m` and `v`
+
+So ZeRO-3 is not "doing distributed Adam" at every scalar update. The distributed
+part is the gather / reduce-scatter choreography around each layer. Once the shard
+gradient is on its owning rank, the actual Adam update is ordinary local optimizer math.
 
 ---
 
-## The Optimizer Factory Pattern
+## Two Practical Notes
 
-Because ZeRO-3 replaces each parameter with a shard, the optimizer
-must be created **after** all parameter replacements are done. Here's the subtle
-issue: if you call `optimizer = Adam(model.parameters())` before `transform_model()`,
-Adam stores internal references to each parameter *tensor object*. After ZeRO-3's
-`transform_model()` runs, it creates new `local_param` tensors (the shards) and
-replaces the module's `.weight` attributes with them. The old tensor objects that
-Adam holds are now orphaned — they no longer participate in the forward pass.
-Adam will compute and apply updates to those orphaned tensors, not to the
-`local_param` shards that the model actually uses. The model trains, the loss
-decreases (the shards are updated correctly via ZeRO-3's own update path), but the
-optimizer state is wasted — silently. Using the factory pattern avoids this by
-calling `optimizer = Adam(bucket.local_param for ...)` after the shards exist.
+**1. Create the optimizer after sharding is finalized.**
+The optimizer must own the actual shard tensors, not the original full-parameter
+objects. Otherwise it may allocate state for tensors that are no longer the ones
+used by the forward pass.
 
-The factory pattern solves this by creating the optimizer with the final shard
-parameter list:
-
-```python
-def transform_model(self, model: nn.Module) -> nn.Module:
-    # ... wrap all modules into buckets, create local_param shards ...
-    self._prepare_buckets(model)  # each bucket now has a local_param shard tensor
-    
-    optimizer_params = [bucket.local_param for bucket in self.buckets]
-    self.optimizer = self.runtime.create_optimizer(optimizer_params)
-    # ↑ called AFTER all sharding, with the final shard Parameter objects
-    self.scheduler = self.runtime.create_scheduler(self.optimizer)
-    return model
-```
-
-`runtime.create_optimizer()` invokes the user-provided optimizer factory with the
-final `local_param` list. The runtime doesn't know whether the parameters are full
-or sharded — it just calls the factory with whatever list it receives. The optimizer's
-`m` and `v` moment vectors are then sized to match the shards, not the original
-full parameters.
-
----
-
-## What `override_param_state_dict` Does
-
-Without ZeRO-3, the default checkpoint saves `model.state_dict()`, which returns
-the current value of each named parameter. In a ZeRO-3 run, each parameter's
-`.data` is a 1/N shard, not the full weight. A naive `model.state_dict()` would
-save those shards with the original parameter names but wrong shapes — loading
-them on a different world size (or even the same one) would fail a shape check.
-
-ZeRO-3 overrides this to save shards explicitly with their layout recorded:
-
-```python
-def override_param_state_dict(self):
-    state = {}
-    metadata = []
-    for bucket in self.buckets:
-        state_key = f"zero3_bucket_{bucket.index}"
-        state[state_key] = bucket.local_param.detach().cpu().clone()
-        metadata.append(ParamState(
-            state_key=state_key,
-            logical_names=bucket.logical_names,  # which original params are in this shard
-            ...
-        ))
-    return state, metadata
-```
-
-Each rank saves its own shard under a key like `zero3_bucket_0`. The checkpoint
-manifest records the world size and per-rank shard extents. On load, the
-corresponding shard is read back into `bucket.local_param.data`, and the forward
-hooks re-establish on-demand materialization from that point.
-
-The manifest records enough information so that a future implementation can detect
-a world-size change on resume and reshard accordingly — though that's not yet
-implemented.
+**2. Checkpoints must record sharded layout explicitly.**
+In ZeRO-3, a rank usually saves only its local shard, not the full parameter.
+So checkpoint metadata needs to describe which shard this is, what its logical
+full shape was, and what DP world size produced it.
 
 ---
 
@@ -332,20 +249,27 @@ implemented.
 
 | Stage | What is sharded | Memory/rank (7B model, N=8) | Extra communication vs. DDP |
 |---|---|---|---|
-| DDP (no ZeRO) | Nothing | ~84 GB | baseline (1× all-reduce per step) |
-| ZeRO-1 | Optimizer state (m, v) | ~35 GB | +all-gather after optimizer step |
-| ZeRO-2 | Optimizer state + gradients | ~23 GB | reduce-scatter replaces all-reduce |
-| ZeRO-3 | Optimizer state + gradients + parameters | ~10.5 GB | +all-gather on every forward + backward |
+| DDP (no ZeRO) | Nothing | ~112 GB | baseline (1× all-reduce per step) |
+| ZeRO-1 | Master weights + optimizer state | ~38.5 GB | +all-gather after optimizer step |
+| ZeRO-2 | Master weights + optimizer state + gradients | ~26.25 GB | reduce-scatter replaces all-reduce |
+| ZeRO-3 | Master weights + optimizer state + gradients + parameters | ~14 GB | +all-gather on every forward + backward |
 
-The memory numbers assume mixed-precision training (bf16 params/grads, fp32 moments).
-ZeRO-3's ~10.5 GB per rank is under what a single H100 holds; ZeRO-2 and ZeRO-1
+The memory numbers assume a standard mixed-precision setup: bf16 model
+parameters and gradients, plus fp32 master weights and Adam moments.
+ZeRO-3's ~14 GB per rank is under what a single H100 holds; ZeRO-2 and ZeRO-1
 still require multiple GPUs or NVLink for the all-reduce to remain efficient.
+
+One important limit: ZeRO reduces **parameter / gradient / optimizer-state**
+memory. It does **not** remove the activation memory from forward/backward.
+For long contexts or very deep models, you still need techniques like activation
+checkpointing, sequence/context parallelism, or pipeline parallelism.
 
 ---
 
 ## Communication Volume: Is ZeRO-3 Worth It?
 
-Per optimizer step, ZeRO-3 costs:
+Per optimizer step, ZeRO-3 costs roughly:
+
 - **Forward pass**: all-gather for each bucket (1× model size total, once per
   forward step, spread across the step via prefetch). Each rank contributes its
   `1/N` shard; the gather produces the full model on all ranks temporarily.
@@ -364,8 +288,8 @@ Compare to plain DDP all-reduce: 2× model size per step (ring-allreduce: each b
 travels through N-1 reduce steps and N-1 broadcast steps).
 
 ZeRO-3 costs 50% more communication per step, but uses `1/N` the memory for
-parameters, gradients, and optimizer state. At N=8, that's ~10 GB vs. ~84 GB for
-a 7B model.
+parameters, gradients, master weights, and optimizer state. At N=8, that's
+~14 GB vs. ~112 GB for a 7B model.
 
 The practical answer: ZeRO-3 is worth it when the model doesn't fit without it,
 and when you have enough bandwidth to hide the communication. On NVLink-connected
@@ -376,30 +300,19 @@ all-gather latency. Across nodes on InfiniBand, the communication starts to domi
 
 ## Gradient Accumulation Under ZeRO-3
 
-ZeRO-3 with gradient accumulation requires careful state management. On each
-micro-step, ZeRO-3:
+ZeRO-3 with gradient accumulation needs one extra rule: do **not** reduce-scatter
+on every micro-step if you are still accumulating.
+
+On each micro-step, ZeRO-3:
 
 1. Materializes parameters (forward all-gather)
-2. Runs backward, accumulating gradients into `state.grad_buffer`
+2. Runs backward and accumulates gradient contributions locally
 3. On the last micro-step only: runs the reduce-scatter
 
-The `exec_states` list has one entry per micro-step. Each micro-step has its own
-`grad_buffer` to accumulate into, preventing gradient contributions from different
-micro-steps from clobbering each other. The reduce-scatter runs once per optimizer
-step (not per micro-step) — it fires on the last micro-step when `is_step_boundary`
-is true, exactly like the DDP hook in Part 4.
-
----
-
-## Experiment Placeholder
-
-> **[Placeholder: ZeRO-3 vs. ZeRO-1 throughput and memory on 8 GPU]**
-> Benchmark `Zero3Plugin` vs. `Zero1Plugin` on a 3B model at dp=8.
-> Expected: ZeRO-3 significantly lower peak memory (by ~3×), lower
-> throughput (due to extra all-gathers) unless prefetch hides the latency.
-> Measure: tokens/sec, `torch.cuda.max_memory_allocated()`, TFLOPS efficiency.
-> Compare with and without prefetch (can be toggled by setting `bucket_order_checked=True`
-> prematurely to test without the prefetch path).
+Otherwise you would communicate every partial micro-batch gradient separately,
+which defeats the point of gradient accumulation. Conceptually, ZeRO-3 should
+behave like DDP here: accumulate first, synchronize once at the optimizer-step
+boundary.
 
 ---
 
