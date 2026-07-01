@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Distributed Primitives for LLM Training"
-description: Before DDP, ZeRO, or tensor parallelism, you need the basic language of distributed training: ranks, world size, process groups, and the collective operations that move tensors between GPUs.
+description: "Before DDP, ZeRO, or tensor parallelism, you need the basic language of distributed training: ranks, world size, process groups, and the collective operations that move tensors between GPUs."
 category: Pretraining Concepts · Part 3 of 9
 date: 2026-06-11
 read_time: 11 min read
