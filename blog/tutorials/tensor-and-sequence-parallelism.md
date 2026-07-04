@@ -2,7 +2,7 @@
 layout: post
 title: "Tensor and Sequence Parallelism"
 description: TP shards each weight matrix across multiple GPUs. SP shards the activations between layers. Together they reduce memory and increase compute throughput — but they require a specific communication pattern that must be woven into the forward and backward passes of every layer.
-category: Pretraining Concepts · Part 6 of 9
+category: Pretraining Concepts · Part 6 of 10
 date: 2026-06-11
 read_time: 15 min read
 ---

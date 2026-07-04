@@ -1,7 +1,8 @@
-<svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
-  <rect width="760" height="430" fill="#fff"/>
+<svg viewBox="0 0 760 374" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="374" fill="#fff"/>
   <text x="380" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#141414">Zigzag balances causal-attention work</text>
   <text x="380" y="47" text-anchor="middle" font-size="11" fill="#5f625f">each rank pairs an early (light) chunk with a late (heavy) one, so every rank computes the same number of cells</text>
+  <g transform="translate(127,0)">
   <text x="48" y="72" font-size="12" font-weight="700" fill="#141414">Token ownership (T=8, N=4)</text>
   <text x="48" y="88" font-size="10.5" fill="#5f625f">each rank owns one front (light) token and its mirror at the back (dark)</text>
   <rect x="48" y="102" width="46" height="34" rx="4" fill="#87bab6" stroke="#0f766e" stroke-width="1.5"/>
@@ -32,6 +33,7 @@
   <path d="M 123,140 Q 253,162 383,140" fill="none" stroke="#3b6fb0" stroke-width="1.5" opacity="0.65"/>
   <path d="M 175,140 Q 253,155 331,140" fill="none" stroke="#e9a23b" stroke-width="1.5" opacity="0.65"/>
   <path d="M 227,140 Q 253,148 279,140" fill="none" stroke="#c65d3b" stroke-width="1.5" opacity="0.65"/>
+  <g transform="translate(0,-22)">
   <text x="48" y="208" font-size="12" font-weight="700" fill="#141414">Causal cells each rank computes</text>
   <text x="48" y="224" font-size="10.5" fill="#5f625f">colored = keys actually attended  ·  gray = future keys masked out</text>
   <text x="48" y="250" font-size="11" font-weight="600" fill="#5f625f">Rank 0</text>
@@ -107,4 +109,6 @@
   <rect x="361" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
   <text x="388" y="337" font-size="11" font-weight="700" fill="#c65d3b">9 cells</text>
   <text x="48" y="370" font-size="10.5" fill="#5f625f">every rank computes 9 cells — the light chunk's shortfall exactly offsets the heavy chunk's excess</text>
+  </g>
+  </g>
 </svg>

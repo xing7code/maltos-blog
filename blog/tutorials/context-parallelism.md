@@ -2,7 +2,7 @@
 layout: post
 title: "Context Parallelism"
 description: Self-attention has quadratic memory cost in sequence length. Context parallelism shards the sequence across GPUs so each rank only processes a fraction of the tokens. This article covers how attention stays correct when the key-value pairs it needs are on a different GPU.
-category: Pretraining Concepts · Part 8 of 9
+category: Pretraining Concepts · Part 8 of 10
 date: 2026-06-11
 read_time: 13 min read
 ---
@@ -134,8 +134,8 @@ accumulated was scaled by the wrong constant, so before adding the new block we
 <div>
 $$
 \begin{aligned}
-\ell &\leftarrow \ell\, e^{m_\text{old} - m_\text{new}} + \sum_{j \in \text{block}} e^{s_j - m_\text{new}}, \\
-\mathbf{acc} &\leftarrow \mathbf{acc}\, e^{m_\text{old} - m_\text{new}} + \sum_{j \in \text{block}} e^{s_j - m_\text{new}}\, v_j .
+\ell &\leftarrow \ell\, e^{m_\text{old} - m_\text{new}} + \sum_{j \in \text{block}} e^{s_j - m_\text{new}} \\
+\mathbf{acc} &\leftarrow \mathbf{acc}\, e^{m_\text{old} - m_\text{new}} + \sum_{j \in \text{block}} e^{s_j - m_\text{new}}\, v_j
 \end{aligned}
 $$
 </div>

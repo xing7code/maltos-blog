@@ -2,7 +2,7 @@
 layout: post
 title: "How We Store and Stream Tokens"
 description: Pretraining data is not a labeled dataset. It's a stream of billions of tokens that must be stored efficiently, loaded without overhead, and resumed exactly after a checkpoint. This article covers the full data pipeline.
-category: Pretraining Concepts · Part 2 of 9
+category: Pretraining Concepts · Part 2 of 10
 date: 2026-06-11
 read_time: 10 min read
 ---

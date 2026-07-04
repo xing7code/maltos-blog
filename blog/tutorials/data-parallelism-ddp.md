@@ -2,7 +2,7 @@
 layout: post
 title: "Data Parallelism and Gradient Reduction"
 description: DDP is the first parallelism strategy every pretraining setup needs. This article covers synchronous gradient reduction, per-parameter async overlap, and the bucketed implementation that production systems actually use.
-category: Pretraining Concepts · Part 4 of 9
+category: Pretraining Concepts · Part 4 of 10
 date: 2026-06-11
 read_time: 14 min read
 ---

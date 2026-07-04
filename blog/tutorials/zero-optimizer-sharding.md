@@ -2,7 +2,7 @@
 layout: post
 title: "ZeRO Optimizer Sharding"
 description: "Mixed-precision Adam training state is several times larger than the model weights. ZeRO-1, 2, and 3 progressively shard it across data-parallel ranks — with ZeRO-3 sharding the parameters themselves. This article covers how each stage works, why ZeRO-3 requires module-level all-gathers, and what it costs in communication."
-category: Pretraining Concepts · Part 5 of 9
+category: Pretraining Concepts · Part 5 of 10
 date: 2026-06-11
 read_time: 16 min read
 ---

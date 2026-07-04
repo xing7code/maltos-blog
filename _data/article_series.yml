@@ -21,6 +21,8 @@ tutorials:
       title: Context Parallelism
     - href: moe-and-expert-parallelism.html
       title: Mixture of Experts and Expert Parallelism
+    - href: putting-it-all-together.html
+      title: Putting It All Together
 
 internals:
   home_title: Deep Dive

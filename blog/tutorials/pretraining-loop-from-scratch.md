@@ -2,7 +2,7 @@
 layout: post
 title: "The Pretraining Loop, From Scratch"
 description: Before you need tensor parallelism or ZeRO, you need a working training loop. This article builds one from first principles — the minimal version, what it leaves out, and why the structure matters when you scale.
-category: Pretraining Concepts · Part 1 of 9
+category: Pretraining Concepts · Part 1 of 10
 date: 2026-06-11
 read_time: 12 min read
 ---
@@ -20,7 +20,7 @@ breaks down, and shows how the structure needs to change to accommodate scale.
 
 ---
 
-**This series**: nine articles building a pretraining stack from first principles.
+**This series**: ten articles building a pretraining stack from first principles.
 
 | Article | Topic |
 |---|---|
@@ -28,11 +28,12 @@ breaks down, and shows how the structure needs to change to accommodate scale.
 | **Part 2** | Token shards, memory-mapped access, DP-aware data streaming |
 | **Part 3** | Distributed primitives: ranks, process groups, and collectives |
 | **Part 4** | Data parallelism: gradient all-reduce and bucketed async DDP |
-| **Part 5** | Tensor and sequence parallelism: sharding weight matrices across GPUs |
-| **Part 6** | ZeRO optimizer sharding: cutting memory by sharding optimizer state and weights |
+| **Part 5** | ZeRO optimizer sharding: cutting memory by sharding optimizer state and weights |
+| **Part 6** | Tensor and sequence parallelism: sharding weight matrices across GPUs |
 | **Part 7** | Pipeline parallelism: splitting model depth across nodes with microbatch schedules |
 | **Part 8** | Context parallelism: training on very long sequences with ring attention |
 | **Part 9** | Mixture of Experts and expert parallelism: scaling parameters without scaling compute |
+| **Part 10** | Putting it all together: choosing and combining parallelism strategies |
 
 **Prerequisites**: Python, PyTorch basics (`nn.Module`, `torch.optim`, tensor operations), and a working understanding of how gradient descent trains a neural network. No prior distributed training knowledge is assumed — Parts 3–9 introduce distributed concepts as needed.
 

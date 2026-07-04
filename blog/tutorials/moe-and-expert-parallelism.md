@@ -2,9 +2,9 @@
 layout: post
 title: "Mixture of Experts and Expert Parallelism"
 description: MoE replaces a dense FFN with a pool of expert networks and a router that sends each token to one expert. Expert parallelism distributes those experts across GPUs with an all-to-all dispatch that routes tokens to their experts' ranks — and back.
-category: Pretraining Concepts · Part 9 of 9
+category: Pretraining Concepts · Part 9 of 10
 date: 2026-06-11
-read_time: 14 min read
+read_time: 11 min read
 ---
 
 # Mixture of Experts and Expert Parallelism
@@ -22,7 +22,7 @@ of content, and only routed each token to the expert best suited for it?
 Mixture of Experts (MoE) does exactly this. It replaces the dense FFN with N
 expert networks and a learned router. Each token activates exactly one expert
 (Top-1 routing) or a small subset (Top-K routing). The model has more parameters
-but the same FLOPS per token — more capacity without proportional compute.
+but the same FLOPs per token — more capacity without proportional compute.
 
 ---
 
@@ -43,7 +43,7 @@ class Top1MoE(nn.Module):
         self.experts = nn.ModuleList([MLP(dim, hidden_size) for _ in range(num_experts)])
 
     def forward(self, x):
-        flat = x.reshape(-1, dim)          # [B*T, d]
+        flat = x.reshape(-1, x.shape[-1])  # [B*T, d]
         logits = self.router(flat)         # [B*T, N]
         probs = logits.softmax(dim=-1)
         expert_idx = probs.argmax(dim=-1)  # [B*T] — which expert for each token
@@ -77,22 +77,19 @@ MoE:    params = P_attn + N × P_ffn
 ```
 
 For a 7B dense model (≈2.3B attention, ≈4.7B FFN):
-- 8 experts: 2.3B + 8×4.7B ≈ **40B parameters**, ~7B FLOPS per token
-- 64 experts: 2.3B + 64×4.7B ≈ **303B parameters**, ~7B FLOPS per token
+
+- 8 experts: 2.3B + 8×4.7B ≈ **40B parameters**, same per-token compute as dense 7B
+- 64 experts: 2.3B + 64×4.7B ≈ **303B parameters**, same per-token compute as dense 7B
 
 More experts = more capacity, same compute. This is the core MoE value
 proposition. (Top-2 routing — used in Mixtral — activates 2 experts per token,
-doubling FLOPS but also doubling capacity utilization.)
+doubling the per-token compute but also doubling active capacity.)
 
 ---
 
-<div class="article-figure">
-  <img src="../assets/moe-dispatch.svg" alt="Expert parallelism: all-to-all token dispatch and return">
-</div>
-
 ## Why Naive MoE Doesn't Scale
 
-As shown in the parameter count above, an 8-expert MoE with 7B FLOPS/token
+As shown in the parameter count above, an 8-expert MoE with dense-7B per-token compute
 stores ~40B parameters — more than 5× the dense 7B model's footprint. A
 64-expert version stores ~303B. This is the point: MoE trades memory for
 capacity. As you increase the number of experts, the model becomes richer
@@ -128,139 +125,86 @@ subset of tokens to every other rank, and receives tokens from every other rank.
 Unlike all-reduce (which aggregates data) or all-gather (which replicates it),
 all-to-all *redistributes* data — a many-to-many routing operation.
 
+<div class="article-figure">
+  <img src="../assets/moe-dispatch.svg" alt="All-to-all regroups tokens by destination: each rank holds tokens bound for every expert-rank; after the all-to-all each rank holds only its own experts' tokens, runs them locally, then a second all-to-all sends results home">
+</div>
+
 The full dispatch cycle for one MoE layer:
 
+```python
+# The algorithm, with the distributed plumbing left abstract:
+def moe_ep_forward(x):
+    idx, weight = router(x)                    # 1. pick an expert (+ routing weight) per token
+    tokens = sort_by_destination_rank(x, idx)  # 2. group tokens by the rank owning their expert
+    recv   = all_to_all(tokens)                # 3. DISPATCH: each group flies to its expert's rank
+    out    = local_experts(recv) * weight      # 4. run the experts that live on this rank
+    home   = all_to_all(out)                   # 5. RETURN: results fly back to each token's origin
+    return unsort(home)                        # 6. restore the original token order
 ```
-1. Router assigns each token to an expert
-2. Sort tokens by destination rank (dest_rank = expert_id // experts_per_rank)
-3. All-to-all: send tokens to their expert rank, receive tokens from all ranks
-4. Each rank runs its local experts on the tokens it received
-5. All-to-all: send results back to the originating ranks
-```
+
+Steps 1, 2, 4, and 6 are ordinary local tensor ops. The one part that needs a
+real distributed API — and the one place people get stuck — is `all_to_all`,
+because a rank cannot receive a variable number of tokens without first knowing
+how many are coming. `all_to_all_single` needs its receive buffer **pre-allocated**
+at exactly the right size, so every dispatch is really *two* exchanges: a tiny one
+to swap counts, then the big one to move the tokens.
 
 ```python
-def forward(self, x):
-    flat = x.reshape(-1, hidden_size)
+import torch.distributed as dist
+import torch.distributed.nn as dist_nn        # autograd-aware collectives
 
-    # 1. Route
-    router_probs = self.router(flat).softmax(dim=-1)
-    expert_idx = router_probs.argmax(dim=-1)
-    expert_weight = router_probs.gather(1, expert_idx.unsqueeze(1)).squeeze(1)
+# send_counts[j] = how many of this rank's tokens are destined for rank j.
+# First a tiny all-to-all, so every rank learns how many tokens it will RECEIVE:
+recv_counts = torch.empty_like(send_counts)
+dist.all_to_all_single(recv_counts, send_counts, group=ep_group)   # just N ints
 
-    # 2. Sort by destination rank
-    experts_per_rank = len(self.local_expert_ids)
-    dest_rank = expert_idx // experts_per_rank
-    local_expert_idx = expert_idx - dest_rank * experts_per_rank
-    order = torch.argsort(dest_rank)
-    send_tokens = flat.index_select(0, order).contiguous()
-    send_counts = torch.bincount(dest_rank, minlength=ep_world_size).to(torch.int64)
+# Now the real dispatch — move the tokens, split by those counts:
+recv_tokens = torch.empty(int(recv_counts.sum()), d, device=x.device, dtype=x.dtype)
+dist_nn.all_to_all_single(
+    recv_tokens, send_tokens,
+    output_split_sizes=recv_counts.tolist(),   # how many arrive from each rank
+    input_split_sizes=send_counts.tolist(),    # how many we send to each rank
+    group=ep_group,
+)
 
-    # 3. Exchange counts: each rank tells others how many tokens it's sending them
-    recv_counts = _exchange_counts(send_counts, self.ep_group)
+# ... run local experts on recv_tokens ...
 
-    # Also exchange the per-token metadata (local expert index, routing weight)
-    # so each rank knows which expert to run and with what weight.
-    send_local_expert_idx = local_expert_idx[order]  # sorted in same order as send_tokens
-    send_weights = expert_weight[order]
-    recv_local_expert_idx_buf = torch.empty(recv_counts.sum(), dtype=torch.int64, device=flat.device)
-    recv_weights_buf = torch.empty(recv_counts.sum(), device=flat.device, dtype=flat.dtype)
-    dist_nn.all_to_all_single(recv_local_expert_idx_buf, send_local_expert_idx, ...)
-    dist_nn.all_to_all_single(recv_weights_buf, send_weights, ...)
-    recv_local_expert_idx = recv_local_expert_idx_buf
-    recv_weights = recv_weights_buf
-
-    # 4. All-to-all dispatch: tokens travel to their expert ranks
-    recv_buf = torch.empty(recv_counts.sum(), hidden_size, device=flat.device, dtype=flat.dtype)
-    dist_nn.all_to_all_single(
-        recv_buf, send_tokens,
-        output_split_sizes=recv_counts.tolist(),
-        input_split_sizes=send_counts.tolist(),
-        group=self.ep_group,
-    )
-    recv_tokens = recv_buf
-
-    # 5. Run local experts on the tokens that arrived at this rank
-    recv_outputs = torch.zeros_like(recv_tokens)
-    for local_idx, expert in enumerate(self.local_experts):
-        mask = recv_local_expert_idx == local_idx
-        if not torch.any(mask):
-            continue
-        recv_outputs[mask] = expert(recv_tokens[mask]) * recv_weights[mask].unsqueeze(1)
-
-    # 6. All-to-all return: results travel back to originating ranks
-    return_buf = torch.empty_like(send_tokens)  # same shape as what we originally sent
-    dist_nn.all_to_all_single(
-        return_buf, recv_outputs,
-        output_split_sizes=send_counts.tolist(),
-        input_split_sizes=recv_counts.tolist(),
-        group=self.ep_group,
-    )
-    returned_outputs = return_buf
-
-    # 7. Unsort
-    out = torch.zeros_like(flat)
-    out.index_copy_(0, order, returned_outputs)
-    return out.view(x.shape)
+# The return trip is the same call with the send/recv split sizes swapped.
 ```
 
-Two all-to-all operations in the forward pass: one for dispatch (tokens to
-experts), one for return (results back). The backward pass retraces the same
-routes in reverse — gradients of the returned outputs travel back to the expert
-ranks, and gradients of the dispatched tokens travel home — adding two more.
-**Four all-to-alls per MoE layer per training step.** The communication volume
-per all-to-all is (token count × hidden_size × dtype_bytes), independent of how
-many experts there are.
+Using the **autograd-aware** `dist_nn.all_to_all_single` (rather than plain
+`dist`) is what makes the layer trainable: the backward pass retraces the same
+routes in reverse *automatically* — gradients of the results travel back to the
+expert ranks, and gradients of the dispatched tokens travel home. So the two
+forward all-to-alls become **four per MoE layer per training step.** The
+communication volume per all-to-all is (token count × hidden_size × dtype_bytes)
+— *independent of how many experts there are.*
 
-**Shape walkthrough** (4 ranks, 8 experts, local sequence `S` tokens per rank):
+**Shape walkthrough** (4 ranks, 8 experts; `M` tokens on each rank — i.e. batch ×
+sequence — with hidden dim `d`):
 
 ```
 Before dispatch:
-  flat:         [S×B, d]        — all tokens local on each rank
-  send_tokens:  [S×B, d]        — same tokens, sorted by destination rank
-  send_counts:  [4]             — how many tokens this rank sends to each other rank
+  flat:         [M, d]     — all tokens local on each rank
+  send_tokens:  [M, d]     — same tokens, sorted by destination rank
+  send_counts:  [4]        — how many tokens this rank sends to each other rank
 
 After dispatch all-to-all:
-  recv_tokens:  [variable, d]   — tokens from all ranks whose assigned expert is on this rank
+  recv_tokens:  [M', d]    — tokens from all ranks whose expert lives here
+                            (M' varies by rank: a hot expert's rank receives more)
 
 After local expert compute:
-  recv_outputs: [variable, d]   — expert-processed results, same shape as recv_tokens
+  expert_out:   [M', d]    — expert-processed results, same shape as recv_tokens
 
 After return all-to-all (inverse routing):
-  returned_outputs: [S×B, d]    — results sorted back by source rank
+  home:         [M, d]     — results sorted back by source rank
 
 After unsort:
-  out:          [S×B, d]        — results in original token order
+  out:          [M, d]     — results in original token order
 ```
 
 Every token starts and ends on its original rank. The two all-to-alls are inverse
 operations: the first routes tokens to experts, the second routes results home.
-
----
-
-## What `_exchange_counts` Does
-
-Before the all-to-all dispatch, each rank needs to know how many tokens it will
-*receive* (to pre-allocate the receive buffer). You can't skip this: PyTorch's
-`all_to_all_single` requires the output buffer to be pre-allocated with the exact
-number of elements that will arrive. Without knowing receive counts, you'd have to
-allocate the maximum possible (all tokens from all ranks), wasting memory and
-preventing CUDA from knowing where each rank's contribution ends. The sending rank
-knows how many it's *sending* to each destination, so a preliminary tiny all-to-all
-exchanges these counts:
-
-```python
-def _exchange_counts(send_counts, group):
-    recv_counts = torch.empty_like(send_counts)
-    dist.all_to_all_single(
-        recv_counts, send_counts.contiguous(),
-        output_split_sizes=[1]*N, input_split_sizes=[1]*N,
-        group=group,
-    )
-    return recv_counts
-```
-
-This all-to-all over just N integers (one per rank) is negligible cost compared
-to moving the token tensors.
 
 ---
 
@@ -275,12 +219,7 @@ The standard fix is an auxiliary load-balancing loss that penalizes imbalanced
 routing:
 
 ```python
-# Auxiliary loss from the Switch Transformer paper (Fedus et al., 2021)
-# (not in MALTOS's current implementation, but standard in production MoE)
-#
-# NOTE: for the aux loss we need per-expert token counts, not per-rank counts.
-# In a single-GPU MoE, send_counts[e] = number of tokens sent to expert e.
-# In EP, the dispatch uses per-rank counts; convert back to per-expert here.
+# Auxiliary loss from the Switch Transformer paper (Fedus et al., 2021).
 tokens_per_expert = ...  # per-expert assignment counts (shape [num_experts])
 expert_fractions = tokens_per_expert.float() / tokens_per_expert.sum()
 router_probs_mean = router_probs.mean(dim=0)  # average router prob per expert
@@ -295,18 +234,17 @@ product is small when routing is uniform and large when routing is concentrated.
 Multiplying by N (the expert count) normalizes the loss to be scale-invariant
 across different N. Minimizing it encourages the router to spread tokens evenly.
 
-MALTOS's current implementation uses Top-1 routing without the auxiliary loss,
-which is fine for small experiments. At scale, collapse occurs within a few
-thousand steps without it. Production MoE runs (Mixtral, Switch Transformer)
-add the auxiliary loss with a small coefficient (typically 0.01–0.1) to maintain
-balance throughout training.
+A minimal Top-1 MoE without the auxiliary loss is fine for small experiments.
+At scale, collapse occurs within a few thousand steps without it. Production MoE
+runs (Mixtral, Switch Transformer) add the auxiliary loss with a small
+coefficient (typically 0.01–0.1) to maintain balance throughout training.
 
 **Imbalance is also a memory problem.** Under EP, the rank holding a hot expert
 receives more tokens than its peers — its `recv_tokens` buffer grows with the
 imbalance, and in the worst case (full collapse onto one expert) a single rank
-receives *every* token in the batch. MALTOS's exact-count exchange
-(`_exchange_counts`) handles this correctly but offers no protection against the
-memory spike. Production systems bound it with a **capacity factor**: each
+receives *every* token in the batch. The exact-count exchange we saw earlier
+routes those tokens correctly but offers no protection against the memory spike.
+Production systems bound it with a **capacity factor**: each
 expert accepts at most `capacity_factor × (tokens / num_experts)` tokens, and
 tokens beyond that are **dropped** — they skip the expert and pass through the
 residual connection unchanged. Dropping sounds alarming but is standard practice
@@ -323,29 +261,32 @@ In a training run with both DP and EP, there are two classes of parameters:
   EP ranks. These receive gradients like standard DP parameters — reduce over
   the DP group.
 - **Expert parameters** (the expert FFN weights): each EP rank holds different
-  experts. Expert gradients reduce over the **EREP group** (Expert REPlication
-  group) — the set of ranks that each hold a copy of the same expert shard.
-  In a run with DP=4 and EP=2: EP rank 0 holds experts 0–3, EP rank 1 holds
-  experts 4–7. Across DP replicas, every DP rank has the same EP layout, so
-  there are 4 copies of "experts 0–3" (one per DP replica). The EREP group for
-  EP rank 0 is those 4 DP copies — they all computed gradients for the same
-  expert weights and must average them. More generally, EREP = DP × CP (all
-  replicas that ran the same expert).
+  experts, so an all-reduce over the full DP group would be wrong — most ranks
+  don't even hold the same expert. Expert gradients reduce only over the set of
+  ranks that each hold a *copy* of the same expert.
+
+  Where do those copies come from? Take DP=4 and EP=2: EP rank 0 holds experts
+  0–3, EP rank 1 holds experts 4–7. Across the 4 DP replicas, every replica has
+  the same EP layout — so there are 4 copies of "experts 0–3", one per DP
+  replica. Those 4 ranks all computed gradients for the *same* expert weights
+  and must average them together. So expert gradients still reduce along the DP
+  axis, but *within a fixed EP position* rather than across the whole world.
 
 ```python
-# From ep.py: after backward
-# Expert params: reduce over edp_group (ranks that share the same expert shard)
-for param in expert_params:
-    dist.all_reduce(param.grad, op=AVG, group=self.edp_group)  # edp_group = EREP group
+# after backward — two parameter classes, two reduction groups
+for param in expert_params:   # average across replicas of the SAME expert
+    dist.all_reduce(param.grad, op=AVG, group=expert_replica_group)
 
-# Shared params: reduce over dp_group (standard DDP)
-for param in shared_params:
-    dist.all_reduce(param.grad, op=AVG, group=self.dp_group)
+for param in shared_params:   # standard DP all-reduce
+    dist.all_reduce(param.grad, op=AVG, group=dp_group)
 ```
 
-MALTOS tracks parameter roles via `ParamRole.EXPERT` vs. `ParamRole.SHARED`,
-set during `transform_model` when experts are identified. The DDP plugin skips
-parameters with `ParamRole.EXPERT` — it knows EP will handle them.
+For this to work, each parameter has to be tagged *expert* or *shared* when the
+MoE layer is built, and the plain DP reducer must **skip** the expert parameters
+— otherwise they'd be reduced twice, over the wrong group. That bookkeeping is
+exactly what a runtime handles for you; the deep dive on
+[composable parallelism](../internals/composable-parallelism.html) shows how one
+framework wires it through a role-filtered gradient callback.
 
 ---
 
@@ -370,13 +311,19 @@ world sizes.
 
 ## EP + Other Parallelisms
 
-**EP + TP**: TP shards attention and non-MoE FFN layers; EP shards expert layers.
-The two operate on different module paths and don't conflict. Expert parameters
-are excluded from TP sharding.
+**EP + TP**: these aren't really independent axes. EP needs a group of GPUs to
+spread its experts across, and in practice that group is *carved from a parallel
+axis you're already using* rather than a brand-new set of GPUs — frameworks differ
+on which one (DeepSpeed splits it out of the data-parallel group; Megatron's
+"parallel folding" repartitions the GPUs the attention layers use for TP and CP).
+Whether each expert is *also* TP-sharded is a separate knob. Exactly how the group
+is laid out is a device-mesh design decision; the deep dives go deeper.
 
-**EP + ZeRO**: ZeRO handles expert parameters differently — it shards within the
-EDP group rather than the full DP group. This interplay is handled through the
-`delegate_expert_sync` flag in the EP plugin.
+**EP + ZeRO**: ZeRO shards expert parameters within the expert-replica group
+(the ranks that hold the same expert) rather than the full DP group — otherwise
+it would try to shard an expert across ranks that don't even have it. The two
+have to agree on who owns the expert-gradient reduction so it happens exactly
+once.
 
 **EP + PP**: expert parameters belong to the PP stage that contains the MoE
 layer. The EP all-to-all dispatch happens entirely within that stage — it doesn't
@@ -384,56 +331,15 @@ cross stage boundaries.
 
 ---
 
-## Experiment Placeholder
+## What's Next: Putting It All Together
 
-> **[Placeholder: EP all-to-all overhead vs. dense FFN baseline]**
-> Compare training throughput: dense 7B model vs. 7B-FLOPS MoE with 8 experts
-> at ep=1 (all experts on one GPU) vs. ep=4 (experts distributed). Expected:
-> ep=1 MoE slower than dense due to routing overhead and irregular memory access.
-> ep=4 reduces per-GPU expert memory and may improve throughput via better
-> VRAM utilization, but adds all-to-all cost. Measure: tokens/sec and MFU.
+MoE and expert parallelism is the last individual technique in this series — but
+real frontier runs never pick just one. They stack DP, ZeRO, TP, SP, PP, CP, and
+EP together, each solving a different dimension of the memory and compute problem.
 
----
-
-## What's Next in This Series
-
-This concludes the tutorial series. You now have the complete picture:
-
-| Tutorial | Technique | What it solves |
-|---|---|---|
-| 1 | Training loop | Basic infrastructure |
-| 2 | Token data pipeline | Efficient sequential data loading |
-| 3 | Distributed primitives | Collective communication building blocks |
-| 4 | Data parallelism | Throughput via data replication |
-| 5 | Tensor + sequence parallelism | Model memory within a node |
-| 6 | ZeRO optimizer sharding | Optimizer state memory |
-| 7 | Pipeline parallelism | Model depth across nodes |
-| 8 | Context parallelism | Quadratic attention memory at long context |
-| 9 | MoE + expert parallelism | Parameter scaling without compute scaling |
-
-These nine chapters cover the core building blocks of modern large-scale pretraining.
-Real frontier runs combine many of them simultaneously, each solving a different
-dimension of the memory and compute problem.
-
-**A practical starting point** — what to reach for at each scale:
-
-| Your situation | Typical configuration |
-|---|---|
-| Model fits on one GPU, want speed | DDP (Part 4) |
-| Model fits, optimizer state doesn't | DDP + ZeRO-1/2 (Part 6) |
-| Model doesn't fit on one GPU, fits on a node | TP+SP within the node (Part 5), DP/ZeRO across nodes |
-| Model doesn't fit on a node | + PP across nodes (Part 7), or ZeRO-3 if interconnect is fast |
-| Long context (32K+) | + CP (Part 8) |
-| MoE model | + EP (Part 9) |
-
-A concrete example: a 70B dense model on 64 H100s might run TP=8 (one node),
-PP=2, DP=4, with ZeRO-1 on the DP axis — 8×2×4 = 64 GPUs, each holding 1/16 of
-the model's layers' weights and 1/64 of the optimizer state. These are the same
-levers exposed by DeepSpeed (ZeRO stages) and Megatron-LM (TP/PP/CP sizes) —
-the concepts in this series transfer directly to those frameworks' configuration
-knobs.
-
-The deep-dive series goes into how MALTOS's plugin system composes these
-strategies correctly: how the optimizer factory pattern prevents silent failures,
-how checkpoints stay correct under arbitrary parallelism combinations, and what
-the AFAB vs. 1F1B schedule actually looks like at the code level.
+**[Part 10 — Putting It All Together](putting-it-all-together.html)** steps back
+across all nine techniques: which ones shard the *model* and which shard the
+*activations*, how each layer actually gets split, what each costs in memory and
+communication, and which to reach for at a given scale. It closes with two real
+open models — Qwen3 and DeepSeek-V3 — and the very different parallelism recipes
+they chose to train at scale.
