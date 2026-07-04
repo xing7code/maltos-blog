@@ -1,0 +1,110 @@
+<svg viewBox="0 0 760 430" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="430" fill="#fff"/>
+  <text x="380" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#141414">Zigzag balances causal-attention work</text>
+  <text x="380" y="47" text-anchor="middle" font-size="11" fill="#5f625f">each rank pairs an early (light) chunk with a late (heavy) one, so every rank computes the same number of cells</text>
+  <text x="48" y="72" font-size="12" font-weight="700" fill="#141414">Token ownership (T=8, N=4)</text>
+  <text x="48" y="88" font-size="10.5" fill="#5f625f">each rank owns one front (light) token and its mirror at the back (dark)</text>
+  <rect x="48" y="102" width="46" height="34" rx="4" fill="#87bab6" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="71" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#0f766e">R0</text>
+  <text x="71" y="129" text-anchor="middle" font-size="9" fill="#0f766e">pos0</text>
+  <rect x="100" y="102" width="46" height="34" rx="4" fill="#9db7d7" stroke="#3b6fb0" stroke-width="1.5"/>
+  <text x="123" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#3b6fb0">R1</text>
+  <text x="123" y="129" text-anchor="middle" font-size="9" fill="#3b6fb0">pos1</text>
+  <rect x="152" y="102" width="46" height="34" rx="4" fill="#f4d09d" stroke="#e9a23b" stroke-width="1.5"/>
+  <text x="175" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#e9a23b">R2</text>
+  <text x="175" y="129" text-anchor="middle" font-size="9" fill="#e9a23b">pos2</text>
+  <rect x="204" y="102" width="46" height="34" rx="4" fill="#e2ae9d" stroke="#c65d3b" stroke-width="1.5"/>
+  <text x="227" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#c65d3b">R3</text>
+  <text x="227" y="129" text-anchor="middle" font-size="9" fill="#c65d3b">pos3</text>
+  <rect x="256" y="102" width="46" height="34" rx="4" fill="#c65d3b" stroke="#c65d3b" stroke-width="1.5"/>
+  <text x="279" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">R3</text>
+  <text x="279" y="129" text-anchor="middle" font-size="9" fill="#fff">pos4</text>
+  <rect x="308" y="102" width="46" height="34" rx="4" fill="#e9a23b" stroke="#e9a23b" stroke-width="1.5"/>
+  <text x="331" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">R2</text>
+  <text x="331" y="129" text-anchor="middle" font-size="9" fill="#fff">pos5</text>
+  <rect x="360" y="102" width="46" height="34" rx="4" fill="#3b6fb0" stroke="#3b6fb0" stroke-width="1.5"/>
+  <text x="383" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">R1</text>
+  <text x="383" y="129" text-anchor="middle" font-size="9" fill="#fff">pos6</text>
+  <rect x="412" y="102" width="46" height="34" rx="4" fill="#0f766e" stroke="#0f766e" stroke-width="1.5"/>
+  <text x="435" y="117" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">R0</text>
+  <text x="435" y="129" text-anchor="middle" font-size="9" fill="#fff">pos7</text>
+  <path d="M 71,140 Q 253,169 435,140" fill="none" stroke="#0f766e" stroke-width="1.5" opacity="0.65"/>
+  <path d="M 123,140 Q 253,162 383,140" fill="none" stroke="#3b6fb0" stroke-width="1.5" opacity="0.65"/>
+  <path d="M 175,140 Q 253,155 331,140" fill="none" stroke="#e9a23b" stroke-width="1.5" opacity="0.65"/>
+  <path d="M 227,140 Q 253,148 279,140" fill="none" stroke="#c65d3b" stroke-width="1.5" opacity="0.65"/>
+  <text x="48" y="208" font-size="12" font-weight="700" fill="#141414">Causal cells each rank computes</text>
+  <text x="48" y="224" font-size="10.5" fill="#5f625f">colored = keys actually attended  ·  gray = future keys masked out</text>
+  <text x="48" y="250" font-size="11" font-weight="600" fill="#5f625f">Rank 0</text>
+  <rect x="98" y="238" width="15" height="15" rx="2" fill="#73afaa"/>
+  <rect x="115" y="238" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="132" y="238" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="149" y="238" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="166" y="238" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="183" y="238" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="200" y="238" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="217" y="238" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="242" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <rect x="259" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <rect x="276" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <rect x="293" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <rect x="310" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <rect x="327" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <rect x="344" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <rect x="361" y="238" width="15" height="15" rx="2" fill="#0f766e"/>
+  <text x="388" y="250" font-size="11" font-weight="700" fill="#0f766e">9 cells</text>
+  <text x="48" y="279" font-size="11" font-weight="600" fill="#5f625f">Rank 1</text>
+  <rect x="98" y="267" width="15" height="15" rx="2" fill="#8dabd1"/>
+  <rect x="115" y="267" width="15" height="15" rx="2" fill="#8dabd1"/>
+  <rect x="132" y="267" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="149" y="267" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="166" y="267" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="183" y="267" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="200" y="267" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="217" y="267" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="242" y="267" width="15" height="15" rx="2" fill="#3b6fb0"/>
+  <rect x="259" y="267" width="15" height="15" rx="2" fill="#3b6fb0"/>
+  <rect x="276" y="267" width="15" height="15" rx="2" fill="#3b6fb0"/>
+  <rect x="293" y="267" width="15" height="15" rx="2" fill="#3b6fb0"/>
+  <rect x="310" y="267" width="15" height="15" rx="2" fill="#3b6fb0"/>
+  <rect x="327" y="267" width="15" height="15" rx="2" fill="#3b6fb0"/>
+  <rect x="344" y="267" width="15" height="15" rx="2" fill="#3b6fb0"/>
+  <rect x="361" y="267" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <text x="388" y="279" font-size="11" font-weight="700" fill="#3b6fb0">9 cells</text>
+  <text x="48" y="308" font-size="11" font-weight="600" fill="#5f625f">Rank 2</text>
+  <rect x="98" y="296" width="15" height="15" rx="2" fill="#f2c98d"/>
+  <rect x="115" y="296" width="15" height="15" rx="2" fill="#f2c98d"/>
+  <rect x="132" y="296" width="15" height="15" rx="2" fill="#f2c98d"/>
+  <rect x="149" y="296" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="166" y="296" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="183" y="296" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="200" y="296" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="217" y="296" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="242" y="296" width="15" height="15" rx="2" fill="#e9a23b"/>
+  <rect x="259" y="296" width="15" height="15" rx="2" fill="#e9a23b"/>
+  <rect x="276" y="296" width="15" height="15" rx="2" fill="#e9a23b"/>
+  <rect x="293" y="296" width="15" height="15" rx="2" fill="#e9a23b"/>
+  <rect x="310" y="296" width="15" height="15" rx="2" fill="#e9a23b"/>
+  <rect x="327" y="296" width="15" height="15" rx="2" fill="#e9a23b"/>
+  <rect x="344" y="296" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="361" y="296" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <text x="388" y="308" font-size="11" font-weight="700" fill="#e9a23b">9 cells</text>
+  <text x="48" y="337" font-size="11" font-weight="600" fill="#5f625f">Rank 3</text>
+  <rect x="98" y="325" width="15" height="15" rx="2" fill="#dda18d"/>
+  <rect x="115" y="325" width="15" height="15" rx="2" fill="#dda18d"/>
+  <rect x="132" y="325" width="15" height="15" rx="2" fill="#dda18d"/>
+  <rect x="149" y="325" width="15" height="15" rx="2" fill="#dda18d"/>
+  <rect x="166" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="183" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="200" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="217" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="242" y="325" width="15" height="15" rx="2" fill="#c65d3b"/>
+  <rect x="259" y="325" width="15" height="15" rx="2" fill="#c65d3b"/>
+  <rect x="276" y="325" width="15" height="15" rx="2" fill="#c65d3b"/>
+  <rect x="293" y="325" width="15" height="15" rx="2" fill="#c65d3b"/>
+  <rect x="310" y="325" width="15" height="15" rx="2" fill="#c65d3b"/>
+  <rect x="327" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="344" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <rect x="361" y="325" width="15" height="15" rx="2" fill="#dcdfda"/>
+  <text x="388" y="337" font-size="11" font-weight="700" fill="#c65d3b">9 cells</text>
+  <text x="48" y="370" font-size="10.5" fill="#5f625f">every rank computes 9 cells — the light chunk's shortfall exactly offsets the heavy chunk's excess</text>
+</svg>

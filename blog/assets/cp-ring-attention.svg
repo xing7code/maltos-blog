@@ -1,93 +1,71 @@
-<svg viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
-  <rect width="760" height="320" fill="#fff"/>
+<svg viewBox="0 0 760 470" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">
+  <rect width="760" height="470" fill="#fff"/>
   <defs>
-    <marker id="arr" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-      <path d="M0,0 L7,3.5 L0,7 Z" fill="#5f625f"/>
-    </marker>
-    <marker id="arr-t" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
-      <path d="M0,0 L7,3.5 L0,7 Z" fill="#0f766e"/>
-    </marker>
+    <marker id="arr-t" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0,0 L7,3.5 L0,7 Z" fill="#0f766e"/></marker>
   </defs>
-
-  <!-- Title -->
-  <text x="380" y="18" text-anchor="middle" font-size="13" font-weight="700" fill="#141414">Ring Attention: KV rotates around the ring each step</text>
-
-  <!-- ── LEFT: Ring topology diagram ── -->
-  <!-- 4 ranks in a ring, center at (200, 170) -->
-  <!-- Rank 0: top (200, 80) -->
-  <!-- Rank 1: right (290, 170) -->
-  <!-- Rank 2: bottom (200, 260) -->
-  <!-- Rank 3: left (110, 170) -->
-
-  <!-- ring circle (faint) -->
-  <circle cx="200" cy="170" r="78" fill="none" stroke="#eceee7" stroke-width="1.5" stroke-dasharray="5,3"/>
-
-  <!-- rank nodes -->
-  <rect x="156" y="56" width="88" height="48" rx="6" fill="#0f766e"/>
-  <text x="200" y="75" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 0</text>
-  <text x="200" y="89" text-anchor="middle" font-size="10" fill="#aee0db">Q₀, K₀, V₀</text>
-  <text x="200" y="100" text-anchor="middle" font-size="9" fill="#aee0db">pos [0 .. T/4)</text>
-
-  <rect x="276" y="146" width="88" height="48" rx="6" fill="#0b4f4a"/>
-  <text x="320" y="165" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 1</text>
-  <text x="320" y="179" text-anchor="middle" font-size="10" fill="#8ecec7">Q₁, K₁, V₁</text>
-  <text x="320" y="190" text-anchor="middle" font-size="9" fill="#8ecec7">pos [T/4 .. T/2)</text>
-
-  <rect x="156" y="236" width="88" height="48" rx="6" fill="#0f766e" opacity="0.8"/>
-  <text x="200" y="255" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 2</text>
-  <text x="200" y="269" text-anchor="middle" font-size="10" fill="#aee0db">Q₂, K₂, V₂</text>
-  <text x="200" y="280" text-anchor="middle" font-size="9" fill="#aee0db">pos [T/2 .. 3T/4)</text>
-
-  <rect x="36" y="146" width="88" height="48" rx="6" fill="#0b4f4a" opacity="0.8"/>
-  <text x="80" y="165" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 3</text>
-  <text x="80" y="179" text-anchor="middle" font-size="10" fill="#8ecec7">Q₃, K₃, V₃</text>
-  <text x="80" y="190" text-anchor="middle" font-size="9" fill="#8ecec7">pos [3T/4 .. T)</text>
-
-  <!-- ring arrows (KV passing clockwise: 0→1→2→3→0) -->
-  <path d="M 244,80 C 270,80 280,130 280,148" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
-  <text x="278" y="115" font-size="9" fill="#0f766e">KV</text>
-
-  <path d="M 320,194 C 320,230 280,250 244,252" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
-  <text x="328" y="230" font-size="9" fill="#0f766e">KV</text>
-
-  <path d="M 156,262 C 130,262 120,225 120,196" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
-  <text x="108" y="240" font-size="9" fill="#0f766e">KV</text>
-
-  <path d="M 80,146 C 80,110 130,84 156,80" fill="none" stroke="#0f766e" stroke-width="2" marker-end="url(#arr-t)"/>
-  <text x="84" y="110" font-size="9" fill="#0f766e">KV</text>
-
-  <!-- center label -->
-  <text x="200" y="165" text-anchor="middle" font-size="10" fill="#5f625f">N steps</text>
-  <text x="200" y="178" text-anchor="middle" font-size="10" fill="#5f625f">to complete</text>
-
-  <!-- ── RIGHT: online softmax accumulation ── -->
-  <rect x="420" y="30" width="324" height="270" rx="6" fill="#f7f7f4" stroke="#c9cbc2" stroke-width="1"/>
-  <text x="582" y="50" text-anchor="middle" font-size="12" font-weight="700" fill="#141414">Online softmax accumulation</text>
-  <text x="582" y="63" text-anchor="middle" font-size="10" fill="#5f625f">each rank accumulates attention result across N ring steps</text>
-
-  <!-- Step boxes -->
-  <rect x="436" y="72" width="292" height="34" rx="4" fill="#eceee7"/>
-  <text x="582" y="86" text-anchor="middle" font-size="10" font-weight="600" fill="#141414">step 0: compute attention(Q, local K/V)</text>
-  <text x="582" y="99" text-anchor="middle" font-size="10" fill="#5f625f">init running_max, running_lse, running_acc</text>
-
-  <text x="582" y="120" text-anchor="middle" font-size="10" fill="#5f625f">↓ ring shift: receive KV from previous rank</text>
-
-  <rect x="436" y="128" width="292" height="34" rx="4" fill="#eceee7"/>
-  <text x="582" y="142" text-anchor="middle" font-size="10" font-weight="600" fill="#141414">step 1: compute attention(Q, received K/V)</text>
-  <text x="582" y="155" text-anchor="middle" font-size="10" fill="#5f625f">rescale acc by exp(old_max − new_max), add new block</text>
-
-  <text x="582" y="176" text-anchor="middle" font-size="10" fill="#5f625f">↓ ring shift again …</text>
-
-  <rect x="436" y="184" width="292" height="20" rx="4" fill="#eceee7"/>
-  <text x="582" y="198" text-anchor="middle" font-size="10" fill="#5f625f">step 2 … step N−1</text>
-
-  <!-- final output -->
-  <rect x="436" y="216" width="292" height="36" rx="4" fill="#0f766e"/>
-  <text x="582" y="232" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">output = running_acc / running_lse</text>
-  <text x="582" y="246" text-anchor="middle" font-size="10" fill="#aee0db">exact attention — no full T×T score matrix ever stored</text>
-
-  <!-- memory note -->
-  <rect x="436" y="264" width="292" height="26" rx="4" fill="#fff" stroke="#c9cbc2" stroke-width="1"/>
-  <text x="582" y="276" text-anchor="middle" font-size="10" fill="#141414">K, V memory: O(T/N) per rank  (vs O(T) for all-gather KV)</text>
-  <text x="582" y="286" text-anchor="middle" font-size="9" fill="#5f625f">tradeoff: N sequential P2P exchanges vs one all-gather</text>
+  <text x="380" y="26" text-anchor="middle" font-size="14" font-weight="700" fill="#141414">Ring Attention: KV rotates one hop per step</text>
+  <text x="380" y="44" text-anchor="middle" font-size="11" fill="#5f625f">Rank 3 accumulates every earlier block as the ring turns</text>
+  <ellipse cx="272" cy="240" rx="210" ry="120" fill="none" stroke="#eceee7" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <path d="M 272,120 Q 401,166 482,240" fill="none" stroke="#0f766e" stroke-width="1.5" opacity="0.28" marker-end="url(#arr-t)"/>
+  <path d="M 482,240 Q 401,314 272,360" fill="none" stroke="#0f766e" stroke-width="1.5" opacity="0.28" marker-end="url(#arr-t)"/>
+  <path d="M 272,360 Q 143,314 62,240" fill="none" stroke="#0f766e" stroke-width="1.5" opacity="0.28" marker-end="url(#arr-t)"/>
+  <path d="M 62,240 Q 143,166 272,120" fill="none" stroke="#0f766e" stroke-width="1.5" opacity="0.28" marker-end="url(#arr-t)"/>
+  <rect x="220" y="99" width="104" height="42" rx="6" fill="#0f766e"/>
+  <text x="272" y="114" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 0</text>
+  <text x="272" y="131" text-anchor="middle" font-size="10" fill="#aee0db">Q0 · K0,V0</text>
+  <rect x="430" y="219" width="104" height="42" rx="6" fill="#3b6fb0"/>
+  <text x="482" y="234" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 1</text>
+  <text x="482" y="251" text-anchor="middle" font-size="10" fill="#aee0db">Q1 · K1,V1</text>
+  <rect x="220" y="339" width="104" height="42" rx="6" fill="#e9a23b"/>
+  <text x="272" y="354" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 2</text>
+  <text x="272" y="371" text-anchor="middle" font-size="10" fill="#aee0db">Q2 · K2,V2</text>
+  <rect x="10" y="219" width="104" height="42" rx="6" fill="#c65d3b" stroke="#141414" stroke-width="3"/>
+  <text x="62" y="234" text-anchor="middle" font-size="11" font-weight="600" fill="#fff">Rank 3</text>
+  <text x="62" y="251" text-anchor="middle" font-size="10" fill="#aee0db">Q3 · K3,V3</text>
+  <g>
+    <rect x="-17" y="-9" width="34" height="18" rx="4" fill="#0f766e"/>
+    <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">KV0</text>
+    <animateMotion dur="7.6s" repeatCount="indefinite" path="M 272.0,168.0 A 132,72 0 0 1 272.0,312.0 A 132,72 0 0 1 272.0,168.0 Z" keyPoints="0.0000;0.0000;0.2500;0.2500;0.2500;0.5000;0.5000;0.5000;0.7500;0.7500;0.7500;1.0000" keyTimes="0.0000;0.1125;0.2500;0.2500;0.3625;0.5000;0.5000;0.6125;0.7500;0.7500;0.8625;1.0000" calcMode="linear"/>
+  </g>
+  <g>
+    <rect x="-17" y="-9" width="34" height="18" rx="4" fill="#3b6fb0"/>
+    <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">KV1</text>
+    <animateMotion dur="7.6s" repeatCount="indefinite" path="M 404.0,240.0 A 132,72 0 0 1 140.0,240.0 A 132,72 0 0 1 404.0,240.0 Z" keyPoints="0.0000;0.0000;0.2500;0.2500;0.2500;0.5000;0.5000;0.5000;0.7500;0.7500;0.7500;1.0000" keyTimes="0.0000;0.1125;0.2500;0.2500;0.3625;0.5000;0.5000;0.6125;0.7500;0.7500;0.8625;1.0000" calcMode="linear"/>
+  </g>
+  <g>
+    <rect x="-17" y="-9" width="34" height="18" rx="4" fill="#e9a23b"/>
+    <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">KV2</text>
+    <animateMotion dur="7.6s" repeatCount="indefinite" path="M 272.0,312.0 A 132,72 0 0 1 272.0,168.0 A 132,72 0 0 1 272.0,312.0 Z" keyPoints="0.0000;0.0000;0.2500;0.2500;0.2500;0.5000;0.5000;0.5000;0.7500;0.7500;0.7500;1.0000" keyTimes="0.0000;0.1125;0.2500;0.2500;0.3625;0.5000;0.5000;0.6125;0.7500;0.7500;0.8625;1.0000" calcMode="linear"/>
+  </g>
+  <g>
+    <rect x="-17" y="-9" width="34" height="18" rx="4" fill="#c65d3b"/>
+    <text x="0" y="4" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">KV3</text>
+    <animateMotion dur="7.6s" repeatCount="indefinite" path="M 140.0,240.0 A 132,72 0 0 1 404.0,240.0 A 132,72 0 0 1 140.0,240.0 Z" keyPoints="0.0000;0.0000;0.2500;0.2500;0.2500;0.5000;0.5000;0.5000;0.7500;0.7500;0.7500;1.0000" keyTimes="0.0000;0.1125;0.2500;0.2500;0.3625;0.5000;0.5000;0.6125;0.7500;0.7500;0.8625;1.0000" calcMode="linear"/>
+  </g>
+  <text x="560" y="136" font-size="11" font-weight="700" fill="#141414">Rank 3 attends to:</text>
+  <g opacity="1">
+    <rect x="560" y="150" width="40" height="20" rx="4" fill="#c65d3b"/>
+    <text x="580" y="164" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">K3V3</text>
+    <text x="610" y="164" font-size="10" fill="#5f625f">(own block)</text>
+  </g>
+  <g opacity="0">
+    <rect x="560" y="180" width="40" height="20" rx="4" fill="#e9a23b"/>
+    <text x="580" y="194" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">K2V2</text>
+    <text x="610" y="194" font-size="10" fill="#5f625f">(from rank 2)</text>
+    <animate attributeName="opacity" dur="7.6s" repeatCount="indefinite" keyTimes="0;0.2500;0.2500;1" values="0;0;1;1"/>
+  </g>
+  <g opacity="0">
+    <rect x="560" y="210" width="40" height="20" rx="4" fill="#3b6fb0"/>
+    <text x="580" y="224" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">K1V1</text>
+    <text x="610" y="224" font-size="10" fill="#5f625f">(from rank 1)</text>
+    <animate attributeName="opacity" dur="7.6s" repeatCount="indefinite" keyTimes="0;0.5000;0.5000;1" values="0;0;1;1"/>
+  </g>
+  <g opacity="0">
+    <rect x="560" y="240" width="40" height="20" rx="4" fill="#0f766e"/>
+    <text x="580" y="254" text-anchor="middle" font-size="10" font-weight="700" fill="#fff">K0V0</text>
+    <text x="610" y="254" font-size="10" fill="#5f625f">(from rank 0)</text>
+    <animate attributeName="opacity" dur="7.6s" repeatCount="indefinite" keyTimes="0;0.7500;0.7500;1" values="0;0;1;1"/>
+  </g>
+  <text x="560" y="288" font-size="10" fill="#5f625f">after 4 steps: all prior KV seen,</text>
+  <text x="560" y="302" font-size="10" fill="#5f625f">never holding more than one block.</text>
 </svg>

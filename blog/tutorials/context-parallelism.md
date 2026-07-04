@@ -11,7 +11,7 @@ read_time: 13 min read
 
 Self-attention is quadratic in sequence length. Naively materializing the
 attention score matrix `[B, H, T, T]` at T=128K would take over 1 TB
-(`1 × 32 × 131072 × 131072 × 2 bytes` at B=1, H=32, bf16) — which is why no
+(`1 × 32 × 128K × 128K × 2 bytes` at B=1, H=32, bf16) — which is why no
 modern implementation does it: fused kernels in the FlashAttention style compute
 attention in tiles and never store the full matrix. But two costs remain even
 with fused kernels. The *compute* is still O(T²) — doubling the context
@@ -20,7 +20,7 @@ hidden states — still grow linearly with T per layer; at T=128K, summed across
 dozens of layers, they exceed a single GPU's memory on their own. Context
 parallelism addresses both by splitting the sequence itself across GPUs.
 
-Sequence parallelism (Part 5) shards activations *between* layers — each rank
+Sequence parallelism (Part 6) shards activations *between* layers — each rank
 holds `[B, T/N, d_model]` outside the TP compute regions, but the attention
 computation still processes the full local sequence. CP goes further: it shards
 the sequence *everywhere*, including inside attention. Each rank owns `T/N` tokens
@@ -40,66 +40,132 @@ CP assigns each rank a contiguous slice of the sequence:
 
 ```
 Sequence of T tokens, cp_world_size = 4:
-  Rank 0: positions  0 ..  T/4-1
-  Rank 1: positions T/4 .. T/2-1
-  Rank 2: positions T/2 .. 3T/4-1
-  Rank 3: positions 3T/4 .. T-1
+  Rank 0: positions [   0,  T/4 )
+  Rank 1: positions [ T/4,  T/2 )
+  Rank 2: positions [ T/2, 3T/4 )
+  Rank 3: positions [3T/4,  T   )
 ```
 
 Each rank processes its own input tokens through embeddings and all non-attention
 layers normally. At the attention layer, the rank has its own Q, K, V for
-positions `[rank*T/N .. (rank+1)*T/N - 1]`. Computing causal attention requires
+positions `[rank*T/N, (rank+1)*T/N)`. Computing causal attention requires
 seeing K, V from all *earlier* positions — which live on earlier ranks.
 
-MALTOS implements two strategies to resolve this:
+There are two common strategies to resolve this:
 
 ---
 
-## Strategy 1: All-Gather KV
+## Strategy 1: All-Gather KV (the naive baseline)
 
-The simpler approach: before computing attention, each rank all-gathers K and V
-from all ranks:
+The simplest approach: before computing attention, each rank all-gathers K and V
+from every other rank along the sequence dimension.
 
-```python
-class AllGatherKvAttentionCore(nn.Module):
-    def forward(self, q, k, v, position_offset, position_ids=None):
-        # k, v: [B, H, T/N, d_head] — each rank's local KV slice
-        # Gather K and V from all CP ranks → [B, H, T, d_head]
-        gathered_k = all_gather(k, group, comm_dim=2)  # gather along sequence dim
-        gathered_v = all_gather(v, group, comm_dim=2)
-
-        # Each rank has its own Q but full K, V
-        # Apply causal mask using position IDs
-        causal_mask = k_positions.unsqueeze(0) <= q_positions.unsqueeze(1)
-        scores = (q @ gathered_k.transpose(-2, -1)) * scale
-        scores = scores.masked_fill(~causal_mask, float("-inf"))
-        return (scores.softmax(-1) @ gathered_v)
+```text
+each rank holds local K, V:  [B, H, T/N, d_head]
+  → all-gather over CP group → full K, V:  [B, H, T, d_head]
+  → attention: scores = Q @ Kᵀ, masked causally by position, softmax, @ V
 ```
 
-Each rank now has the full K, V tensors and can compute exact causal attention
-for its Q slice. The output is `[B, H, T/N, d_head]` — local to each rank.
+Each rank keeps only its own `T/N` queries but now has the *full* K and V, so it
+can compute exact causal attention for its query slice. The causal mask is applied
+by comparing positions — a query at position `i` may attend only to keys at
+positions `≤ i` — so correctness does not depend on how tokens were distributed
+across ranks. The output is `[B, H, T/N, d_head]`, local to each rank.
 
 **Trade-off**: all-gather KV moves the full K, V tensors to every rank. For a
 128K-token sequence with 32 KV heads at d_head=128, B=1, bf16, that's ~2 GB of
 K and V (combined) re-materialized on every rank — and this happens at *every*
 attention layer, so the transient allocation pressure recurs dozens of times
-per forward pass. Far less than materializing attention scores, but the memory
-benefit of sequence sharding is partially given back at each attention layer.
+per forward pass.
 
-All-gather KV is simpler to implement and works correctly with arbitrary
-causal masks and positional encodings. It's the safer default.
+Notice what this gives back. The whole point of CP is to keep the sequence sharded
+*inside* attention; all-gather KV re-assembles the full KV right before the attention
+math, so at that moment each rank is holding the entire sequence's keys and values
+again. That is essentially SP's behavior — shard between layers, gather the full
+sequence for the attention core — with the one saving that queries stay sharded, so
+each rank still only computes attention for its own `T/N` queries. The activation
+and compute savings survive; the KV-memory saving does not.
+
+So all-gather KV is best seen as a **naive baseline**: it's simple, and it's
+correct for arbitrary causal masks and positional encodings, which makes it a fine
+fallback for moderate sequence lengths or unusual attention variants. But because it
+re-materializes the full KV at every layer, it doesn't scale to the very long
+contexts CP exists for. For those, ring attention is the real tool.
 
 ---
 
-<div class="article-figure">
-  <img src="../assets/cp-ring-attention.svg" alt="Ring attention: KV rotation topology and online softmax accumulation">
+## Aside: Online Softmax
+
+The second strategy needs one prerequisite, so it's worth a short detour. For one
+query, attention over keys with scores $s_1, \dots, s_T$ and value vectors
+$v_1, \dots, v_T$ is a softmax-weighted average of the values:
+
+$$
+\text{out} = \sum_{j=1}^{T} \frac{e^{s_j}}{\sum_{k=1}^{T} e^{s_k}}\, v_j .
+$$
+
+**The numerical problem.** Scores can be large, and $e^{s_j}$ overflows in float
+long before $s_j$ itself does. The standard fix is the *safe* (or "stable") softmax:
+subtract the row maximum $m = \max_k s_k$ before exponentiating. Since the same
+constant is added to numerator and denominator, the result is unchanged, but every
+exponent is now $\le 0$:
+
+$$
+\text{out} = \sum_{j=1}^{T} \frac{e^{s_j - m}}{\sum_{k=1}^{T} e^{s_k - m}}\, v_j .
+$$
+
+**The streaming problem.** Both $m$ and the denominator $\ell = \sum_k e^{s_k - m}$
+are taken over the *whole* row, so safe softmax seems to require all $T$ scores in
+hand before producing any output. That breaks when the scores arrive a block at a
+time — exactly what happens when the keys are scattered across ranks.
+
+**Online softmax** removes that requirement. It processes the scores in blocks,
+carrying three running quantities per query and updating them as each block arrives:
+
+- $m$ — the largest score seen so far,
+- $\ell$ — the running denominator $\sum e^{s - m}$ over all blocks seen so far,
+- $\mathbf{acc}$ — the running numerator $\sum e^{s - m}\, v$ (a weighted sum of value vectors).
+
+The subtlety is that a new block may contain a score larger than the current $m$.
+When the max jumps from $m_\text{old}$ to $m_\text{new}$, every term already
+accumulated was scaled by the wrong constant, so before adding the new block we
+**rescale** the running totals by $e^{m_\text{old} - m_\text{new}}$:
+
+<div>
+$$
+\begin{aligned}
+\ell &\leftarrow \ell\, e^{m_\text{old} - m_\text{new}} + \sum_{j \in \text{block}} e^{s_j - m_\text{new}}, \\
+\mathbf{acc} &\leftarrow \mathbf{acc}\, e^{m_\text{old} - m_\text{new}} + \sum_{j \in \text{block}} e^{s_j - m_\text{new}}\, v_j .
+\end{aligned}
+$$
 </div>
+
+After the last block, $\mathbf{acc} / \ell$ is the attention output — bit-for-bit
+the same value safe softmax would give over the full row, but computed without ever
+holding all $T$ scores at once.
+
+This is precisely the trick FlashAttention uses to tile attention on a single GPU.
+Ring attention reuses it across GPUs: each arriving KV block is just one more block
+of scores to fold into the running statistics.
+
+We've only described the *forward* pass here. The backward pass through online
+softmax is more involved — the rescaling makes the recurrence non-trivial to
+differentiate, and practical implementations either recompute the per-block
+statistics or stash them from the forward pass. We leave it out; the
+[FlashAttention paper](https://arxiv.org/abs/2205.14135) works through the details
+for the curious.
+
+---
 
 ## Strategy 2: Ring Attention
 
 Ring attention avoids all-gathering the full K, V by rotating them through the
 CP ranks one step at a time. Each rank accumulates its attention result
 incrementally as it processes each arriving KV block.
+
+<div class="article-figure">
+  <img src="../assets/cp-ring-attention.svg" alt="Ring attention: KV blocks rotate around the ranks; Rank 3 accumulates every earlier block">
+</div>
 
 ```
 Step 0: Each rank computes attention using its own local K, V
@@ -114,42 +180,15 @@ After N steps, each rank has processed K, V from all N positions and accumulated
 the full attention result for its Q slice — without any rank ever holding the
 full K, V sequence.
 
-The attention accumulation uses **online softmax** (Flash Attention style): rather
-than materializing all T scores before applying softmax, we maintain running
-statistics that let us update the attention output incrementally as each new KV
-block arrives:
+This is where online softmax earns its place: each KV block a rank receives is
+just another block of scores to fold into the running `m`, `ℓ`, and `acc` for its
+query slice. A rank never needs the whole score row at once, so it never needs the
+whole KV sequence at once — it processes one arriving block, updates its running
+statistics, passes that block onward to the next rank, and then waits for the next
+incoming block. After the final block, `acc / ℓ` is the exact attention output for
+its queries.
 
-- `running_max`: the maximum score seen so far for each query position (used to
-  keep the exponentials numerically stable via the standard log-sum-exp trick)
-- `running_lse`: the running sum of `exp(score - running_max)` values — i.e., the
-  unnormalized softmax denominator accumulated so far (the variable is named `lse`
-  for "log-sum-exp" by convention, but it stores the summed exponentials directly)
-- `running_acc`: the weighted sum of V vectors so far (the softmax numerator)
-
-When a new KV block arrives, we rescale the existing accumulator to account for
-the new maximum, add the new block's contribution, and update the statistics.
-The final output is `running_acc / running_lse.clamp_min(1e-20).unsqueeze(-1)` —
-the exact attention result for each query position, computed without ever holding
-all T scores in memory. The `.unsqueeze(-1)` broadcasts the scalar denominator
-across the value dimension; `.clamp_min(1e-20)` guards against all-zero attention
-(empty causal windows at position 0).
-
-```python
-for step in range(world_size):
-    current_k, current_v = current_kv.split(k_head_dim, dim=-1)
-    running_max, running_lse, running_acc = _update_online_attention_state(
-        q=q, k=current_k, v=current_v,
-        q_positions=q_positions, key_positions=current_positions,
-        running_max=running_max, running_lse=running_lse, running_acc=running_acc,
-    )
-    if step + 1 == world_size:
-        break
-    # Rotate K, V to the next rank
-    current_kv = _ring_shift(current_kv, group, send_to=(rank+1)%N, recv_from=(rank-1+N)%N)
-    current_positions = _ring_exchange_tensor(current_positions, ...)
-```
-
-At step 0, rank `r` processes its own KV block (positions `r*T/N .. (r+1)*T/N - 1`).
+At step 0, rank `r` processes its own KV block (positions `[r*T/N, (r+1)*T/N)`).
 After the ring shift, each rank passes its KV block to `rank+1` and receives from
 `rank-1`. So at step 1, rank `r` processes the KV block originally from rank `r-1`;
 at step 2, from rank `r-2`; and so on. After `N` steps, rank `r` has accumulated
@@ -160,9 +199,9 @@ out-of-range keys are masked regardless of the ring order.
 Each rank sends and receives one KV block per ring step, processing blocks of
 size `T/N` rather than the full `T`. Memory for K, V stays at `O(T/N)` per rank.
 
-**Trade-off**: N ring steps instead of one all-gather. MALTOS's implementation
-exchanges KV synchronously between steps, so each step's P2P latency is exposed.
-This is an implementation choice, not a limit of the technique — production ring
+**Trade-off**: N ring steps instead of one all-gather. A naive implementation
+exchanges KV synchronously between steps, so each step's P2P latency is exposed —
+but that is an implementation choice, not a limit of the technique. Production ring
 attention implementations double-buffer, sending and receiving the *next* KV
 block while computing attention on the *current* one, hiding most of the
 communication. Even with overlap, for very large CP world sizes the N-step
@@ -173,73 +212,63 @@ bandwidth makes the one-shot gather cheap.
 
 ## The Zigzag Assignment
 
-A subtle problem with contiguous sequence assignment: causal attention is heavily
-asymmetric. Rank 3 (the last quarter of the sequence) can attend to all of the
-previous 3 quarters — it does far more computation per token than rank 0. As
-the world size grows, later ranks become compute bottlenecks.
+The contiguous assignment above has a load-balancing flaw, and the ring makes it
+easy to see. Causal attention is asymmetric: a token at position `i` attends only to
+the `i` tokens before it, so **work grows with position**. Under contiguous slicing,
+rank 0 owns the earliest quarter (almost nothing to attend to) while the last rank
+owns the latest quarter (nearly the whole sequence to attend to).
 
-MALTOS's ring attention uses a **zigzag assignment** to balance load: each rank
-gets tokens from both the front and the back of the sequence.
+Watch what that does to the ring. The last rank has to do real attention math at
+*every* one of the `N` steps — its queries are late, so every KV block that arrives
+contains keys it must attend to. Rank 0 is the opposite: its queries are early, so
+most arriving KV blocks are entirely in its future and get masked out — it receives
+a block each step and computes almost nothing. But the ring is synchronous: every
+step waits for the slowest rank. So the last rank stalls the whole ring at each step
+while rank 0 sits idle, and the bigger the world size, the worse the skew.
 
-```python
-def _local_position_ids(seq_len, rank, world_size, attention_core_type):
-    if attention_core_type != RING:
-        # Contiguous: rank i gets [rank*T/N .. (rank+1)*T/N - 1]
-        start, length = rank * (seq_len // world_size), seq_len // world_size
-        return torch.arange(start, start + length)
-    # Zigzag: rank i gets [rank*half .. (rank+1)*half] ∪ [last-rank mirror]
-    half_len = seq_len // (2 * world_size)
-    front_start = rank * half_len
-    back_start = (2 * world_size - rank - 1) * half_len
-    return torch.cat([
-        torch.arange(front_start, front_start + half_len),   # early tokens
-        torch.arange(back_start, back_start + half_len),     # late tokens
-    ])
+The **zigzag assignment** fixes this by giving every rank a balanced mix of light
+and heavy work. Split the sequence into `2N` chunks instead of `N`, and hand each
+rank one chunk from the front paired with one from the back — an early "light" chunk
+with a late "heavy" one:
+
+```
+T=16, N=4  ->  8 chunks of 2 tokens each
+
+Rank 0: [0,1]   + [14,15]   (lightest + heaviest)
+Rank 1: [2,3]   + [12,13]
+Rank 2: [4,5]   + [10,11]
+Rank 3: [6,7]   + [ 8, 9]
 ```
 
-A concrete example with T=16, cp=4, using zigzag:
-```
-half_len = 16 / (2 × 4) = 2
+<div class="article-figure">
+  <img src="../assets/cp-zigzag-work-balance.svg" alt="Contiguous context parallelism leaves later ranks with more causal attention work, while zigzag balances work by pairing light and heavy query chunks">
+</div>
 
-Rank 0: front [0,1]   + back [14,15]  → "lightest" + "heaviest" positions
-Rank 1: front [2,3]   + back [12,13]
-Rank 2: front [4,5]   + back [10,11]
-Rank 3: front [6,7]   + back [ 8, 9]
-```
+The pairing is what balances the load: the chunk at position `i` goes with the chunk
+at `T-1-i`. Since work scales with position, each rank's total is roughly
+`i + (T-1-i)` = a constant — the same for every rank, wherever its chunks sit in the
+sequence. No rank is the permanent bottleneck anymore, so the ring's per-step wait
+is even.
 
-Each rank gets a light early slice (few preceding tokens to attend to) paired
-with a heavy late slice (many preceding tokens to attend to). Since attention work
-scales with position index, pairing position `i` with position `T - i - 1` gives
-each rank a roughly equal total work — the sum of positions is the same for all ranks
-regardless of where they are in the sequence.
-
-Without zigzag (contiguous assignment):
-```
-Rank 0: [0..3]    ← lightest (each token attends to ≤4 prior tokens)
-Rank 3: [12..15]  ← heaviest (each token attends to ≤16 prior tokens)
-```
-Rank 3 would be 4× slower than rank 0, stalling the whole ring at every step.
-
-The causal mask is applied based on position IDs, not physical slot indices, so
-the attention correctness is unaffected by how positions are distributed across
-ranks.
+This reshuffling raises no correctness concerns because the causal mask keys off
+**position IDs, not physical location**. A token carries its true position no matter
+which rank or slot holds it, so "who may attend to whom" is unchanged — zigzag only
+alters *which rank computes what*, never the result.
 
 ---
 
 ## CP and Gradient Synchronization
 
-CP is similar to DP in one respect: each CP rank processes different tokens from
-the same model parameters. After backward, gradients from different CP ranks must
-be averaged, just as DP all-reduces gradients across data-parallel replicas.
+CP is similar to DP in one respect: each CP rank processes different tokens through
+the *same* model parameters. So after backward, gradients from different CP ranks
+must be averaged — exactly like the DP all-reduce that synchronizes gradients across
+data-parallel replicas. The only difference is the group it runs over: an all-reduce
+across the CP ranks rather than the DP ranks.
 
-The CP plugin handles this via an all-reduce over the CP process group, which runs
-after the backward pass at `POST_BACKWARD`. When DP is also active, the two
-reductions can be combined: MALTOS forms a DCP process group that spans all ranks
-sharing the same model parameters — both across DP replicas and across CP peers.
-A single all-reduce over this combined group replaces the two separate reductions.
-When only CP is active without DP, the CP plugin registers a `POST_BACKWARD` hook
-that calls `dist.all_reduce(param.grad, group=cp_group)` for each parameter — the
-same operation as DP gradient sync, just over the CP group instead of the DP group.
+When DP and CP are both active, the two reductions can be fused into one: since a
+parameter's gradient needs to be averaged over *every* rank that holds a copy of it
+— across DP replicas and CP peers alike — a single all-reduce over the combined set
+of ranks replaces the two separate collectives.
 
 ---
 
@@ -264,10 +293,11 @@ The attention score matrix `[B, H, T, T]` is never fully materialized in either
 CP strategy — each rank only computes scores for its Q slice against whatever KV
 block it has.
 
-At T=128K (131072), H=32, d_head=128, B=1, bf16:
-- Full K or V: 131072 × 32 × 128 × 2 bytes ≈ 1 GB per tensor, per layer
+At T=128K, H=32, d_head=128, B=1, bf16:
+
+- Full K or V: 128K × 32 × 128 × 2 bytes ≈ 1 GB per tensor, per layer
 - CP rank at N=4: 256 MB per tensor
-- Attention score matrix, if materialized naively: 131072² × 32 × 2 bytes ≈ 1 TB
+- Attention score matrix, if materialized naively: (128K)² × 32 × 2 bytes ≈ 1 TB
   (fused kernels avoid this — but the per-layer K/V and hidden-state memory above,
   multiplied across dozens of layers, is unavoidable without CP)
 
@@ -284,25 +314,15 @@ orthogonal. With both, each rank holds a fraction of the weights AND a fraction
 of the sequence. The TP all-reduce and CP all-reduce operate on different
 dimensions.
 
-**CP + PP**: pipeline stages send activations between stages as `[B, T/cp, hidden]`
-tensors. The PP plugin detects whether SP (and by extension CP-style sharding) is
-active and sizes its communication buffers correctly.
+**CP + PP**: with CP active, the activations crossing pipeline stage boundaries are
+sequence-sharded — `[B, T/cp, hidden]` rather than the full `[B, T, hidden]`. As with
+PP + SP, the send and receive buffers on either side of a stage boundary have to
+agree on this sharded shape.
 
 **CP + SP**: SP already shards activations along the sequence dimension between
 TP layers. CP works at a coarser level — entire attention layers — and uses
 position-based masking. The two can coexist: SP shards activations *within* a
 node, CP shards sequences *across* nodes.
-
----
-
-## Experiment Placeholder
-
-> **[Placeholder: ring vs. all-gather KV throughput and memory at long context]**
-> Compare RingAttentionCore vs. AllGatherKvAttentionCore at seq_len=32K and
-> seq_len=128K with cp=4. Expected: ring wins on memory (never materializes full
-> KV), all-gather wins on throughput at seq_len=32K (one collective vs. N ring
-> steps). At seq_len=128K the ring's memory advantage should dominate.
-> Measure: `max_memory_allocated()` and tokens/sec.
 
 ---
 

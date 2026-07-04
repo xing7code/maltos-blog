@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Pipeline Parallelism"
-description: When a model is too large to fit on a node — or when tensor parallelism has hit its scaling limit — pipeline parallelism splits the model vertically across stages and keeps all GPUs busy with a schedule of microbatches. This article covers how the split works, the two schedules MALTOS implements, and where the bubble comes from.
+description: When a model is too large to fit on a node — or when tensor parallelism has hit its scaling limit — pipeline parallelism splits the model vertically across stages and keeps all GPUs busy with a schedule of microbatches. This article covers how the split works, the two common schedules, and where the bubble comes from.
 category: Pretraining Concepts · Part 7 of 9
 date: 2026-06-11
 read_time: 14 min read
@@ -29,39 +29,31 @@ for.
 
 ## How the Model Is Split
 
-MALTOS splits the model into three regions:
+A transformer has three kinds of layers, and they split differently:
 
-```python
-class PipelineParallelSpec:
-    head_layers: list[str]   # embedding, RoPE — only on stage 0
-    pipe_layers: list[str]   # transformer block layers — split evenly across stages
-    tail_layers: list[str]   # layer norm, lm_head — only on last stage
-```
+- **Head layers** — the token embedding and any input-side setup (e.g. RoPE
+  tables). These live only on the first stage, because it is the only stage that
+  sees raw token IDs.
+- **Transformer blocks** — the bulk of the model. These are partitioned across
+  stages: the first few blocks on stage 0, the next few on stage 1, and so on.
+- **Tail layers** — the final layer norm and the LM head. These live only on the
+  last stage, which produces the logits and computes the loss.
 
-The transformer blocks are partitioned evenly. For a 24-layer model across
-4 stages, each stage gets 6 layers. The plugin calls `_layer_range()`:
+The transformer blocks are usually partitioned evenly. For a 24-layer model
+across 4 stages, each stage gets 6 blocks. When the layer count doesn't divide
+evenly, the simplest policy is to give the first few stages one extra block each
+— for a 25-layer model across 4 stages, stage 0 gets 7 and stages 1–3 get 6.
 
-```python
-def _layer_range(num_layers: int, stage_index: int, stage_count: int):
-    base, remainder = divmod(num_layers, stage_count)
-    start = stage_index * base + min(stage_index, remainder)
-    width = base + (1 if stage_index < remainder else 0)
-    return start, start + width
-```
+Even splitting is only an approximation of balanced work, though. Stage 0 also
+carries the embedding, and the last stage carries the LM head — which for large
+vocabularies can cost as much as several transformer blocks. So production
+systems often balance stages by *compute and memory* rather than by raw block
+count, shifting a block or two off the heavier end stages. The rest of this
+article assumes an even split for simplicity.
 
-When layers don't divide evenly, the first `remainder` stages each get one extra
-layer. For a 25-layer model across 4 stages: stage 0 gets 7 layers, stages 1–3
-get 6 each. This front-loading is simply an artifact of the divmod arithmetic —
-production systems often balance stages by *compute and memory* rather than raw
-layer count, since stage 0 already carries the embedding and stage P-1 carries
-the LM head (which for large vocabularies can outweigh several transformer
-layers). MALTOS keeps the split simple.
-
-Layers that don't belong to this stage are replaced with `_IdentityPipeLayer` —
-a module whose `forward()` returns its first argument unchanged. This preserves
-the module hierarchy (so `model.layers[i]` is still valid Python) without
-executing or loading weights for those layers. Only the assigned layers have
-real parameters; the others are structural placeholders.
+Whatever the split, each stage only allocates and runs the layers assigned to it.
+The layers belonging to other stages are not loaded on this device — a stage holds
+just its own slice of the parameters, which is exactly what buys the memory saving.
 
 ---
 
@@ -71,44 +63,55 @@ Only stage 0 receives raw token IDs as input. Every stage after that receives
 a hidden state tensor — the output of the previous stage's last transformer
 block — and never sees the original vocabulary tokens.
 
-Each stage's output is a hidden state tensor — the activation after the last
-transformer block on that stage. Stage `i` sends its output to stage `i+1`
-using an async point-to-point send. "Async" here means the send is enqueued on
-the CUDA stream and stage `i` can immediately start its next operation (e.g.,
-the forward pass of the next microbatch) without waiting for the data to fully
-arrive at stage `i+1`. Stage `i+1` calls `recv_work.wait()` when it actually
-needs the data, which blocks until the transfer is complete:
+Each stage's output is likewise a hidden state tensor: the activation after the
+last transformer block on that stage. Stage `i` sends its output to stage `i+1`
+using a point-to-point (P2P) send — a message between exactly two ranks, not a
+collective across the whole pipeline. The send is typically **asynchronous**:
+stage `i` enqueues the transfer and can immediately start its next piece of work
+(for example, the forward pass of the next microbatch) instead of blocking until
+the data lands on stage `i+1`. Stage `i+1` only waits when it actually needs the
+tensor to compute.
 
 ```python
-# Stage i: send activations to next stage (non-blocking)
-send_buffer, send_work = self._send_activation_async(boundary_activation.detach())
+# Stage i: send activations to the next stage (non-blocking)
+send_work = send_forward(boundary_activation)
 
-# Stage i+1: receive activations from previous stage
-input_activation, recv_work = self._recv_activation_async(micro_batch)
-recv_work.wait()  # blocks until the data has arrived from stage i
-input_activation.requires_grad_(True)
+# Stage i+1: receive activations from the previous stage
+input_activation, recv_work = recv_forward()
+recv_work.wait()                      # block until the data has arrived
+input_activation.requires_grad_(True) # this stage's input into the graph
 ```
 
-The received `input_activation` has `requires_grad=True`. During backward,
-stage `i+1` computes `dL/d(activation)` — the gradient with respect to its
-input — and sends *that* tensor back to stage `i` as a P2P message:
+**The backward direction is where the asymmetry between stages shows up.** Only
+the last stage has a loss to differentiate: it holds the LM head, computes the
+logits, and evaluates the loss for each microbatch. So the last stage is the one
+that calls `loss.backward()` — that is what kicks off the entire backward pass.
+It has no downstream neighbor to receive a gradient from; it starts from the loss
+itself.
+
+Every other stage has no loss of its own. A stage in the middle only learns how
+to run its backward pass once its *downstream* neighbor hands back a gradient. The
+received input activation carries `requires_grad=True`, so during backward stage
+`i+1` computes `dL/d(activation)` — the gradient with respect to its input — and
+sends *that* tensor back to stage `i`:
 
 ```python
-# Stage i+1: send gradient back
-send_buffer, send_work = self._send_grad_async(state.input_activation.grad.detach())
+# Stage i+1: send the input-activation gradient back upstream
+send_work = send_backward(input_activation.grad)
 
-# Stage i: receive gradient, use it as grad_output for backward
-grad_output, recv_work = self._recv_grad_async(state.output_activation)
+# Stage i: receive that gradient and use it as grad_output
+grad_output, recv_work = recv_backward()
 recv_work.wait()
-# grad_output is dL/d(output_activation) — the gradient of the loss with respect
-# to the tensor that stage i SENT to stage i+1. Calling backward with this value
-# propagates gradients through stage i's layers and updates its parameter gradients.
-self.runtime._backward_step_impl(grad_output=grad_output)
+# grad_output is dL/d(output_activation): the gradient of the loss w.r.t. the
+# tensor stage i SENT downstream. Running backward from it propagates gradients
+# through stage i's layers and accumulates its parameter gradients.
+output_activation.backward(grad_output)
 ```
 
-This is the pipeline's "handshake": activations flow forward, gradients flow
-backward. The communication involves only two ranks at a time — no collective
-operations across all ranks.
+So the loss lives on exactly one stage, and every earlier stage is driven purely
+by the activation gradient arriving from the stage in front of it. This is the
+pipeline's "handshake": activations flow forward, gradients flow backward, and
+each hop touches only two neighboring ranks.
 
 ---
 
@@ -122,110 +125,97 @@ The fix is **microbatches**: split the batch into `M` smaller pieces. Stage 0
 processes microbatch 0, sends its output, then immediately starts microbatch 1.
 Meanwhile, stage 1 is receiving and processing microbatch 0.
 
-```
-Batch of B tokens → M microbatches of B/M tokens each
-```
-
 With enough microbatches, every stage has something to work on simultaneously —
 up to pipeline depth `P` stages running in parallel. This is what makes PP
 efficient.
 
+One thing to get right when splitting a batch this way: the **gradient scale**.
+If the loss is a per-token (or per-sample) average — the usual default — then each
+microbatch's backward already produces the average gradient over *its own* tokens.
+Running backward on all `M` microbatches accumulates those gradients into the
+parameters, giving the *sum* of `M` per-microbatch averages — which is `M` times
+too large. To recover the true batch average, each microbatch's loss is scaled by
+`1/M` before backward. This is exactly the gradient-accumulation normalization
+from earlier in the series; microbatches are just one more place it shows up.
+
 ---
+
+## Scheduling
+
+With `P` stages and `M` microbatches, there are `P × M × 2` pieces of work to run:
+every microbatch does a forward and a backward pass on every stage. Two
+dependency rules constrain the order:
+
+- **Forward:** stage `N`'s forward for a microbatch can't start until stage `N-1`
+  has produced that microbatch's activation.
+- **Backward:** stage `N`'s backward can't start until stage `N+1` has sent back
+  the gradient for that microbatch.
+
+A **schedule** is any ordering of those `P × M × 2` ops that respects both rules.
+Within that freedom there's a lot of room: which microbatch a stage works on next,
+and whether it does forward or backward, is a choice. A *good* schedule makes that
+choice so as to keep every stage as busy as possible (minimal **bubble**) while
+holding as few activations in memory as possible.
+
+Two schedules are enough to see the whole trade-off — **AFAB** and **1F1B**. The
+bubble is essentially fixed by the ratio of `P` to `M` (derived below), not by
+which of these two you pick — so both finish in the same time and carry the same
+bubble. What differs sharply is peak memory. The diagram shows both:
 
 <div class="article-figure">
   <img src="../assets/pp-schedule-diagram.svg" alt="AFAB vs. 1F1B pipeline schedules">
 </div>
 
----
+One simplification in the diagram: forward and backward cells are drawn the same
+width. In reality a **backward pass costs roughly twice a forward pass**, because
+it computes two gradients — the gradient w.r.t. the layer's *input* (to pass
+upstream) and the gradient w.r.t. its *weights* (to update parameters) — where the
+forward computes only the output. The equal widths are just for legibility. This
+2:1 split is also what some advanced schedules exploit: because the input-gradient
+and weight-gradient halves are independent, they can be reordered separately to
+fill idle slots, which is the core idea behind zero-bubble scheduling below.
 
-## Schedule 1: AFAB (All-Forward-All-Backward)
+**AFAB (All-Forward-All-Backward)** — introduced by GPipe
+([Huang et al., 2018](https://arxiv.org/abs/1811.06965)) — is the simplest: each
+stage runs all `M` forward passes, then all `M` backward passes.
 
-The simplest schedule: run all M forward passes first, then all M backward passes.
-
-For stage `s` with `M` microbatches:
-
-```
-F(0), F(1), ..., F(M-1), B(M-1), B(M-2), ..., B(0)
-```
-
-```python
-def _build_afab_schedule(self, num_microbatches: int) -> list[_PipelineAction]:
-    actions = [
-        _PipelineAction(kind=FORWARD, microbatch_idx=m)
-        for m in range(num_microbatches)
-    ]
-    actions.extend(
-        # microbatch_idx: which microbatch's stored activations to use for backward
-        # backward_step_idx: sequential index 0, 1, 2, ... used to look up the
-        #   corresponding exec_state (gradient buffers) from the ZeRO-3 exec_states list
-        _PipelineAction(kind=BACKWARD, microbatch_idx=m, backward_step_idx=i)
-        for i, m in enumerate(range(num_microbatches - 1, -1, -1))
-    )
-    return actions
+```text
+per stage:  F(0) F(1) ... F(M-1)   B(M-1) B(M-2) ... B(0)
 ```
 
-**The bubble problem.** Consider 4 stages and 4 microbatches:
+The backward order is reversed because the last activation produced is the first
+one whose gradient comes back. AFAB is easy to reason about, but it has a memory
+problem: every forward pass stores its activations, and none of them can be freed
+until the matching backward runs. So each stage holds **all `M`** microbatches'
+activations at once — the green bracket in the diagram.
 
-```
-Stage 0:  F0  F1  F2  F3  B3  B2  B1  B0  __  __  __
-Stage 1:  __  F0  F1  F2  F3  B3  B2  B1  B0  __  __
-Stage 2:  __  __  F0  F1  F2  F3  B3  B2  B1  B0  __
-Stage 3:  __  __  __  F0  F1  F2  F3  B3  B2  B1  B0
-```
+**1F1B (One-Forward-One-Backward)** — introduced by PipeDream
+([Harlap et al., 2018](https://arxiv.org/abs/1806.03377)) and used in the
+synchronous, flushed form described here by Megatron-LM
+([Narayanan et al., 2021](https://arxiv.org/abs/2104.04473)) — interleaves the
+two. Each stage first does a short warmup of forward-only passes to fill the
+pipeline, then settles into a steady state of one forward followed by one
+backward, and finally drains the remaining backwards.
 
-Stage 0 starts immediately — it has no *fill* bubble at the front. But after it
-finishes B0, it must wait while stages 1–3 drain their remaining backward passes
-(the `__` slots at the end of stage 0). Stage 3 has the opposite pattern: it is
-idle for the first 3 slots while the pipeline fills, then runs without interruption
-until the end. The total idle time — fill idle for later stages, drain idle for
-earlier stages — is the pipeline bubble. The exact bubble fraction is derived in
-the section below.
-
-**Memory cost of AFAB**: the activations from all M forward passes must be kept
-in memory until their corresponding backward pass. A 24-layer model split across
-4 stages with M=8 microbatches stores 8 separate sets of intermediate activations
-on each stage simultaneously.
-
----
-
-## Schedule 2: 1F1B (One-Forward-One-Backward)
-
-1F1B interleaves forward and backward passes. After a warmup phase (filling the
-pipeline), each stage alternates between processing one forward and one backward:
-
-```python
-def _build_1f1b_schedule(self, num_microbatches: int) -> list[_PipelineAction]:
-    warmup = min(self.stage_count - self.stage_index - 1, num_microbatches)
-    remaining = num_microbatches - warmup  # microbatches that go through the interleaved F/B steady state
-    actions: list[_PipelineAction] = []
-    # warmup: forward-only until pipeline is filled
-    for m in range(warmup):
-        actions.append(_PipelineAction(kind=FORWARD, microbatch_idx=m))
-    # steady state: interleaved F/B
-    for i in range(remaining):
-        if warmup + i < num_microbatches:
-            actions.append(_PipelineAction(kind=FORWARD, microbatch_idx=warmup + i))
-        actions.append(_PipelineAction(kind=BACKWARD, microbatch_idx=i, backward_step_idx=i))
-    # drain: remaining backwards
-    for i in range(remaining, num_microbatches):
-        actions.append(_PipelineAction(kind=BACKWARD, microbatch_idx=i, backward_step_idx=i))
-    return actions
+```text
+per stage s:  warmup:        (P - 1 - s) forward-only passes
+              steady state:  F, B, F, B, ...  (one-forward-one-backward)
+              cooldown:      the remaining backward passes
 ```
 
-For stage `s`, warmup = `P - s - 1` forward passes. Stage P-1 (the **last** stage)
-has warmup = 0 — it immediately starts backward after its first forward, because
-it computes the loss directly. Stage 0 (the **first** stage) has the most warmup
-(`P - 1` forwards) because it must fill the entire pipeline before the last stage
-can send its first gradient back.
+The warmup length depends on the stage. The last stage has no warmup — it starts
+backward right after its first forward, because it owns the loss. The first stage
+warms up the longest (`P-1` forwards), since it must fill the whole pipeline
+before the last stage can send a gradient back.
 
-The **bubble ratio** is the same as AFAB — `(P-1)/(M+P-1)` — the total idle time
-is identical — but 1F1B distributes the idle time differently and crucially:
+The payoff is memory. As soon as a microbatch's backward runs, its activations
+are freed, so the steady state keeps **at most `P`** microbatches in flight rather
+than all `M`. For `P=4`, `M=32`, AFAB stores 32× activations per stage while 1F1B
+stores only 4×. That is why 1F1B is the default in practice.
 
-**Memory advantage of 1F1B**: at any point in the steady state, each stage holds
-at most `P` microbatch activations in memory (one per pipeline stage in flight),
-rather than all `M`. For a 4-stage pipeline with M=32 microbatches, AFAB needs
-32× microbatch activations; 1F1B needs only 4×. This is the main reason to
-prefer 1F1B in production.
+Crucially, **1F1B does not run faster** — the diagram shows both finishing in the
+same 18 ticks, with the same total idle time. It rearranges *when* the idle slots
+fall, not how many there are. The idle time itself is the bubble, quantified next.
 
 ---
 
@@ -249,6 +239,7 @@ the ratio of bubble time to *ideal* (bubble-free) time; `(P-1)/(M+P-1)` is the
 bubble's share of *total* elapsed time. For M ≫ P they converge.
 
 At P=4:
+
 - M=4:  3/7  ≈ 43% idle — poor
 - M=16: 3/19 ≈ 16% idle — acceptable
 - M=32: 3/35 ≈  9% idle — good
@@ -260,54 +251,55 @@ The right `M` is a balance between pipeline efficiency and memory pressure.
 
 ---
 
-## Loss and Gradient Averaging
+## Beyond AFAB and 1F1B
 
-Only the last stage computes a loss. The last stage's loss is broadcast to all
-other stages via all-reduce over the PP process group:
+AFAB and 1F1B are the two schedules worth understanding in full, but they are the
+floor, not the ceiling. Production frameworks push the bubble lower with more
+elaborate schedules — worth knowing by name so you recognize them:
 
-```python
-def _broadcast_loss(self, total_loss, num_microbatches, device):
-    if self.next_global_rank is None:  # True only on the last stage
-        # Divide accumulated loss by M to get the average per-microbatch loss
-        loss = total_loss / float(num_microbatches)
-    else:
-        # Non-last stages have no loss; contribute zero to the all-reduce sum
-        loss = torch.zeros((), device=device)
-    dist.all_reduce(loss, op=dist.ReduceOp.SUM, group=self.pp_group)
-    return loss
-```
+- **Interleaved 1F1B** ([Narayanan et al., 2021](https://arxiv.org/abs/2104.04473))
+  — give each device *several* non-contiguous stages (e.g. layers 0–3 and 16–19)
+  instead of one contiguous block. This shrinks the bubble roughly by the number
+  of chunks per device, at the cost of more cross-stage communication. It is the
+  standard schedule in Megatron-LM. Within this interleaved setting there's a
+  further choice of how to order the microbatches: the default pushes each
+  microbatch as deep as it can go (depth-first), while **breadth-first / looping**
+  schedules ([Lamy-Poirier, 2023](https://arxiv.org/abs/2211.05953)) instead
+  advance many microbatches one chunk at a time, filling the pipeline more fully
+  and overlapping cross-node communication better — at the cost of higher
+  activation memory.
+- **Zero-bubble / ZB-H1** ([Qi et al., 2023](https://arxiv.org/abs/2401.10241))
+  — split the backward pass into its two independent halves (gradient w.r.t. input
+  vs. gradient w.r.t. weights) and reorder them to fill idle slots, driving the
+  steady-state bubble toward zero.
+- **DualPipe** ([DeepSeek-V3, 2024](https://arxiv.org/abs/2412.19437)) — a
+  *bidirectional* schedule that feeds microbatches in from both ends of the
+  pipeline at once, so forward and backward streams overlap and nearly cancel the
+  bubble. The catch is that it keeps two copies of the model's stages in play,
+  roughly doubling the parameter memory — a trade it makes to hide communication
+  on large clusters.
 
-Each microbatch's loss is divided by `num_microbatches` during backward
-(`raw_loss / float(num_microbatches)`), so the total gradient across M
-microbatches is equivalent to processing a single batch of size `M × micro_batch_size`.
+All of them keep the same core idea — activations forward, gradients backward,
+neighbor-to-neighbor P2P — and differ only in the *order* of operations. AFAB and
+1F1B are enough to understand the trade-off; the rest are refinements of it.
 
 ---
 
 ## PP + Other Parallelisms
 
-PP runs first in the plugin ordering — it partitions the model before TP, SP, or
-ZeRO transform the layers. The activation tensors crossing stage boundaries need
-a defined dtype: MALTOS reads this from the precision plugin (if present) and
-casts boundary activations accordingly.
+PP is largely orthogonal to the other parallelism strategies: it splits the model
+*across* stages, while TP, SP, and ZeRO change how each stage's layers are stored
+and computed *within* a stage. In a full 3D setup, PP decides which layers live on
+which stage first, and the other strategies then shard those layers.
 
-PP + SP has an interaction: with SP active, the activation tensor shape at stage
-boundaries is `[B, T/tp_world_size, hidden]` rather than `[B, T, hidden]`. The
-PP plugin detects whether SP is active via `sequence_parallel_enabled` and adjusts
-the expected buffer shape.
-
-PP + ZeRO: ZeRO-3 has per-microbatch `exec_states` (one per microbatch) to keep
-gradient buffers separate across the microbatch accumulation loop. This is why
-the ZeRO tutorial mentioned that `exec_states` has one entry per microbatch.
-
----
-
-## Experiment Placeholder
-
-> **[Placeholder: bubble overhead at different M/P ratios]**
-> Benchmark 8-stage PP with M=8 vs. M=32 microbatches using AFAB and 1F1B.
-> Expected: 1F1B significantly lower peak memory at M=8 (bounded by stage count,
-> not microbatch count). At M=32 the absolute memory differs less but 1F1B
-> still wins. Measure: tokens/sec (throughput), `max_memory_allocated()`.
+The one interaction worth flagging is **PP + sequence parallelism**. SP shards
+activations along the sequence dimension, so the hidden state crossing a stage
+boundary is `[B, T/tp, hidden]` rather than the full `[B, T, hidden]`. The send
+and receive buffers on either side of the boundary have to agree on this sharded
+shape — a stage expecting `[B, T, hidden]` while its neighbor sends
+`[B, T/tp, hidden]` is a size mismatch that will fail at communication time. When
+combining PP with SP, make sure the boundary buffer shapes account for the
+sequence sharding.
 
 ---
 

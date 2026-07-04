@@ -2,18 +2,19 @@
 layout: post
 title: "Tensor and Sequence Parallelism"
 description: TP shards each weight matrix across multiple GPUs. SP shards the activations between layers. Together they reduce memory and increase compute throughput — but they require a specific communication pattern that must be woven into the forward and backward passes of every layer.
-category: Pretraining Concepts · Part 5 of 9
+category: Pretraining Concepts · Part 6 of 9
 date: 2026-06-11
 read_time: 15 min read
 ---
 
 # Tensor and Sequence Parallelism
 
-Data parallelism replicates the model and distributes the data. Tensor parallelism
-does the opposite: within a TP group, every rank sees the same input activations,
-but each rank holds only a slice of the model weights. Each GPU performs its local
-piece of the matrix multiply, and the results are combined with a collective
-communication operation.
+Data parallelism — and ZeRO, its memory-efficient refinement from the previous
+article — keeps every rank working on different data while still, in effect, running
+the whole model. Tensor parallelism moves to a different axis: within a TP group,
+every rank sees the same input activations, but each rank holds only a slice of the
+model weights. Each GPU performs its local piece of the matrix multiply, and the
+results are combined with a collective communication operation.
 
 Sequence parallelism extends this by sharding the activations between layers across
 the sequence dimension, cutting activation memory by a factor of the TP world size.
@@ -299,12 +300,13 @@ So the short version is:
 
 ## What's Next
 
-The next article covers ZeRO optimizer sharding: how the optimizer state (Adam's
-first and second moment estimates) can be sharded across DP ranks to cut memory,
-what the three stages look like under the hood, and where each stage's
-communication cost comes from.
+The next article covers pipeline parallelism: how to split a model vertically
+across pipeline stages, why microbatching is necessary to keep all GPUs busy, and
+the difference between the AFAB and 1F1B schedules that trade off memory against
+the pipeline bubble.
 
-TP+SP gives you horizontal parallelism within a node. ZeRO gives you vertical
-parallelism within the optimizer. The combination of TP+SP+ZeRO-3 is the standard
-configuration for models too large to fit on a single GPU even in a multi-rank
-setting.
+TP+SP splits each layer across GPUs within a node; ZeRO (the previous article)
+shards the training state across the data-parallel axis. Both keep every GPU
+holding all of the model's layers. Pipeline parallelism is what removes that last
+constraint — letting each GPU hold only a fraction of the layers — and TP+SP+ZeRO-3
+combined with PP is the standard configuration for the largest models.

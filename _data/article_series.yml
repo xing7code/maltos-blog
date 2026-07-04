@@ -11,10 +11,10 @@ tutorials:
       title: Distributed Primitives for LLM Training
     - href: data-parallelism-ddp.html
       title: Data Parallelism and Gradient Reduction
-    - href: tensor-and-sequence-parallelism.html
-      title: Tensor and Sequence Parallelism
     - href: zero-optimizer-sharding.html
       title: ZeRO Optimizer Sharding
+    - href: tensor-and-sequence-parallelism.html
+      title: Tensor and Sequence Parallelism
     - href: pipeline-parallelism.html
       title: Pipeline Parallelism
     - href: context-parallelism.html

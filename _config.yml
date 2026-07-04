@@ -4,6 +4,9 @@ url: ""
 baseurl: "/maltos-blog"
 markdown: kramdown
 highlighter: rouge
+kramdown:
+  # Leave $...$ math untouched so MathJax (loaded in the layout) renders it.
+  math_engine: null
 comments:
   enabled: true
   provider: utterances

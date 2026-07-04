@@ -2,7 +2,7 @@
 layout: post
 title: "ZeRO Optimizer Sharding"
 description: "Mixed-precision Adam training state is several times larger than the model weights. ZeRO-1, 2, and 3 progressively shard it across data-parallel ranks — with ZeRO-3 sharding the parameters themselves. This article covers how each stage works, why ZeRO-3 requires module-level all-gathers, and what it costs in communication."
-category: Pretraining Concepts · Part 6 of 9
+category: Pretraining Concepts · Part 5 of 9
 date: 2026-06-11
 read_time: 16 min read
 ---
@@ -318,12 +318,13 @@ boundary.
 
 ## What's Next
 
-The next article covers pipeline parallelism: how to split a model vertically
-across pipeline stages, why microbatching is necessary to keep all GPUs busy, and
-the difference between the AFAB and 1F1B schedules that control memory vs. bubble
-tradeoffs.
+The next article covers tensor and sequence parallelism: how a single weight matrix
+is sharded across multiple GPUs, what ColumnParallelLinear and RowParallelLinear
+actually do, and how sequence parallelism shards activations between layers to cut
+memory further.
 
-ZeRO eliminates memory redundancy within the optimizer and parameter tensors. Pipeline
-parallelism eliminates the need for any single GPU to hold more than a fraction of
-the model's layers — a different kind of memory saving that becomes essential when
-models grow too deep for TP to handle alone.
+DDP and ZeRO both live on the data-parallel axis — they replicate or shard the same
+model across ranks that each process different data. Tensor parallelism is a
+different axis entirely: it splits an individual weight matrix across GPUs so they
+cooperate on one forward pass. It is the standard next tool once a single layer is
+too large, or the compute per layer too slow, for the data-parallel axis alone.

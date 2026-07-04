@@ -247,11 +247,12 @@ which is why DDP has to treat expert parameters carefully.
 
 ## What's Next
 
-The next article covers tensor parallelism and sequence parallelism: how a single
-weight matrix is sharded across multiple GPUs, what ColumnParallelLinear and
-RowParallelLinear actually do, and how sequence parallelism shards activations
-between layers to cut memory further.
+The next article covers ZeRO optimizer sharding: how the optimizer state, gradients,
+and eventually the parameters themselves can be sharded across data-parallel ranks
+to cut memory, what the three ZeRO stages look like under the hood, and where each
+stage's extra communication comes from.
 
-Data parallelism scales training throughput by processing more data in parallel.
-Tensor parallelism scales training throughput by making each forward pass faster —
-a different axis of parallelism that can be combined with DDP to scale both ways at once.
+DDP scales throughput but leaves every rank holding a full copy of the training
+state. ZeRO attacks that redundancy directly — it stays on the data-parallel axis
+but stops replicating what doesn't need to be replicated, the natural next step
+once memory, not throughput, is the binding constraint.
